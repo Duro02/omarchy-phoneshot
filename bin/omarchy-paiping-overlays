@@ -1,0 +1,59 @@
+#!/bin/bash
+# omarchy-paiping-overlays — 预渲染面板代理层用的静态纹理。
+# 只跟 sample 尺寸有关、跟参数无关, sample 一换跑一次即可。
+# 输出到 ~/.cache/paiping/ (别进插件目录,会触发 shell 热重载):
+#   ov-moire.png  灰底斜网格(跟终图同手艺:2x画线再point缩回,角度固定)
+#   ov-grille.png 透明底黑竖条(终图 softlight 光栅的 alpha 近似)
+#   ov-scan.png   透明底黑横条(终图 multiply 扫描线的 alpha 近似)
+#   ov-noise.png  灰底高斯噪点(终图 grain 的近似,弱一些)
+#   ov-band.png   横向快门暗带(终图 shutter band 的近似,位置固定)
+#   ov-glare.png  对角反光(终图 screen glare 的近似,很弱)
+set -euo pipefail
+
+SAMPLE="${1:?usage: $0 <sample.png> [outdir]}"
+OUT="${2:-$HOME/.cache/paiping}"
+mkdir -p "$OUT"
+
+W=$(identify -format "%w" "$SAMPLE")
+H=$(identify -format "%h" "$SAMPLE")
+
+# ---- moire:2x 灰底画双向斜线, point 缩回逼出干涉感 ----
+M2W=$((W * 2)); M2H=$((H * 2))
+SP=9
+MVG=$(awk -v w="$M2W" -v h="$M2H" -v sp="$SP" 'BEGIN{
+  for (a_i=0; a_i<2; a_i++) {
+    ang = (a_i==0) ? 7 : -5
+    rad = ang*3.14159265/180
+    dx = cos(rad); dy = sin(rad)
+    nx = -dy; ny = dx
+    diag = sqrt(w*w+h*h)
+    for (d=-diag; d<diag; d+=sp) {
+      cx = w/2+nx*d; cy = h/2+ny*d
+      printf "line %g,%g %g,%g\n", cx-dx*diag, cy-dy*diag, cx+dx*diag, cy+dy*diag
+    }
+  }
+}')
+magick -size ${M2W}x${M2H} xc:'#808080' -fill '#6e6e6e' -draw "@-" -filter point -resize ${W}x${H}! \
+  "$OUT/ov-moire.png" <<<"$MVG"
+
+# ---- grille:1px 黑竖条,每3px一条 ----
+GRILLE_MVG=$(awk -v w="$W" -v h="$H" 'BEGIN{ for(x=0;x<w;x+=3) printf "line %d,0 %d,%d\n", x, x, h }')
+magick -size ${W}x${H} xc:none -fill black -draw "@-" "$OUT/ov-grille.png" <<<"$GRILLE_MVG"
+
+# ---- scan:1px 黑横条,每4px一条 ----
+SCAN_MVG=$(awk -v w="$W" -v h="$H" 'BEGIN{ for(y=0;y<h;y+=4) printf "line 0,%d %d,%d\n", y, w, y }')
+magick -size ${W}x${H} xc:none -fill black -draw "@-" "$OUT/ov-scan.png" <<<"$SCAN_MVG"
+
+# ---- noise:灰底高斯噪点 ----
+magick -size ${W}x${H} xc:'#808080' +noise Gaussian -colorspace Gray "$OUT/ov-noise.png"
+
+# ---- band:快门暗带,固定 ~38% 高度、厚 ~12%,边缘羽化 ----
+BH=$((H * 12 / 100)); BY=$((H * 38 / 100 - BH / 2))
+magick -size ${W}x${H} xc:none -fill 'rgba(0,0,0,0.55)' \
+  -draw "rectangle 0,$BY $W,$((BY + BH))" -blur 0x18 "$OUT/ov-band.png"
+
+# ---- glare:对角柔光,左上→右下弱白 streak ----
+magick -size ${W}x${H} xc:none -fill 'rgba(255,255,255,0.5)' \
+  -draw "polygon 0,0 $((W/3)),0 0,$((H*2/3))" -blur 0x40 "$OUT/ov-glare.png"
+
+ls -lh "$OUT"/ov-*.png

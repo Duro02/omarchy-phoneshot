@@ -1,0 +1,25 @@
+#!/bin/bash
+# omarchy-paiping-toggle — 拍屏接管开关
+# 用法: omarchy-paiping-toggle [on|off|toggle] (缺省 toggle)
+set -euo pipefail
+
+MODE_FILE="$HOME/.config/omarchy/paiping-mode"
+mkdir -p "$(dirname "$MODE_FILE")"
+
+cur="off"
+[[ -f $MODE_FILE ]] && cur="$(cat "$MODE_FILE")"
+
+case "${1:-toggle}" in
+  on)  next="on" ;;
+  off) next="off" ;;
+  *)   [[ $cur == "on" ]] && next="off" || next="on" ;;
+esac
+
+echo -n "$next" >"$MODE_FILE"
+
+if [[ $next == "on" ]]; then
+  omarchy-notification-send "📸 拍屏模式:开" "PRINT 截图会自动做旧成模糊拍屏感" -t 2500 || true
+else
+  omarchy-notification-send "📸 拍屏模式:关" "PRINT 恢复原生清晰截图" -t 2500 || true
+fi
+echo "$next"

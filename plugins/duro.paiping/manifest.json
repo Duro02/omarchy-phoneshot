@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "duro.paiping",
+  "name": "Paiping",
+  "version": "0.1.0",
+  "author": "duro",
+  "description": "把截图做旧成手机拍屏幕的效果,参数面板实时预览",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Paiping",
+    "description": "拍屏参数面板",
+    "category": "Utilities",
+    "allowMultiple": false
+  }
+}
