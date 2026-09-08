@@ -26,6 +26,22 @@ W=$(identify -format '%w' "$IN")
 H=$(identify -format '%h' "$IN")
 ((W * H < 400)) && { cp "$IN" "$OUT"; exit 0; }
 
+# 线程:blur/motion/noise 是内存带宽型,线程一多抢带宽反而更慢(实测 11 线程 user 时间是 wall 的 7 倍);
+# 默认压到 4,内存也宽松。PAIPING_MAX_WIDTH/MAGICK_THREAD_LIMIT 均可环境覆盖。
+export MAGICK_THREAD_LIMIT="${MAGICK_THREAD_LIMIT:-4}"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+# 工作宽度封顶:4K 全屏 8MP 直接跑要一分钟。先缩到封顶宽度(默认 1920,0=不限)再做全套,
+# S 按封顶后宽度算,观感与全尺寸一致;RAW 原图由截图脚本另存,不受影响。
+CAP_W="${PAIPING_MAX_WIDTH:-1920}"
+if (( CAP_W > 0 && W > CAP_W )); then
+  magick "$IN" -resize ${CAP_W}x "$TMP/capped.png"
+  IN="$TMP/capped.png"
+  W=$(identify -format '%w' "$IN")
+  H=$(identify -format '%h' "$IN")
+fi
+
 S=$(awk -v w="$W" 'BEGIN{ s=w/768; if(s<0.5)s=0.5; if(s>6)s=6; printf "%.3f", s }')
 
 case "$LEVEL" in
@@ -66,27 +82,28 @@ if awk -v m="$MOTION" 'BEGIN{ exit !(m>=0.5) }'; then
   MOTION_ARGS=(-motion-blur "0x${MOTION_SIG}+${MOTION_ANGLE}")
 fi
 
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-W2=$((W * 2)); H2=$((H * 2))
-# 大图限幅:4K 全屏的 2x 画布(7680x4320)要跑一分钟,压到 2400 宽以内,摩尔纹照样出
-if ((W2 > 2400)); then H2=$((H2 * 2400 / W2)); W2=2400; fi
+# 摩尔画布:输出宽压到 960 画(768 预览时 MW=W,路径与今天完全一致,预览零变化),
+# point 缩回出混叠后再放大到 W(柔边 dissolve 纹理,放大无妨)。大图 13s→2s。
+MW=$W; (( MW > 960 )) && MW=960
+MH=$((H * MW / W))
+M2W=$((MW * 2)); M2H=$((MH * 2))
 
 # ---- 1. 摩尔层: 中灰底上直接画错位斜线(2x),point抽回后混叠出大尺度波纹 ----
 # 注:不用 tile+rotate,rotate大画布慢 5s+,直接画线 <2s。每次随机转角,张张不一样。
 ANG_H=$((5 + RANDOM % 6)); ANG_V=$((-4 - RANDOM % 5))
 # 画布是 2x,输出间距 2.3px@768 基准(相对密度恒定);后模糊同比换算
-SP_C=$(awk -v s="$S" -v w2="$W2" -v w="$W" 'BEGIN{ printf "%.2f", 2.3*s*w2/w }')
-MOIRE_BLUR=$(awk -v s="$S" 'BEGIN{ printf "%.2f", 0.6*s }')
-awk -v W=$W2 -v H=$H2 -v A=$ANG_H -v SP="$SP_C" 'BEGIN{
+SP_C=$(awk -v s="$S" -v mw="$M2W" -v w="$W" 'BEGIN{ printf "%.2f", 2.3*s*mw/w }')
+MOIRE_BLUR=$(awk -v s="$S" -v mw="$MW" -v w="$W" 'BEGIN{ printf "%.2f", 0.6*s*mw/w }')
+awk -v W=$M2W -v H=$M2H -v A=$ANG_H -v SP="$SP_C" 'BEGIN{
   dx=W*sin(A*3.14159/180); y=-H*0.2
   while(y<H*1.2){printf "line 0,%f %d,%f\n", y, W, y+dx; y+=SP}}' >"$TMP/h.mvg"
-awk -v W=$W2 -v H=$H2 -v A=$ANG_V -v SP="$SP_C" 'BEGIN{
+awk -v W=$M2W -v H=$M2H -v A=$ANG_V -v SP="$SP_C" 'BEGIN{
   dx=H*sin(A*3.14159/180); x=-W*0.2
   while(x<W*1.2){printf "line %f,0 %f,%d\n", x, x+dx, H; x+=SP}}' >"$TMP/v.mvg"
-magick -size ${W2}x${H2} xc:"#808080" -fill black \
+magick -size ${M2W}x${M2H} xc:"#808080" -fill black \
   -draw "@$TMP/h.mvg" -draw "@$TMP/v.mvg" \
-  -filter point -resize ${W}x${H}\! -filter Mitchell -blur 0x$MOIRE_BLUR "$TMP/moire.png"
+  -filter point -resize ${MW}x${MH}\! -filter Mitchell -blur 0x$MOIRE_BLUR \
+  -resize ${W}x${H}\! "$TMP/moire.png"
 
 # ---- 2. LCD亚像素光栅(RGB竖条) ----
 GRILLE_P=$(awk -v s="$S" 'BEGIN{ p=int(3*s+0.5); if(p<3)p=3; print p }')
@@ -100,11 +117,14 @@ magick -size ${W}x${SCAN_P} xc:black -fill white -draw "rectangle 0,0 $W,$((SCAN
   -alpha set -channel A -evaluate multiply "$SCAN" +channel "$TMP/scanmask.png"
 
 # ---- 4. 快门横带(刷新率失配的那一道亮/暗带): 随机位置柔边横带 ----
+# 横带是纯柔边渐变,1/4 小画布画完放大,观感一致,σ90 级大模糊 8s→0s。小图同样走,更快。
 BAND_Y=$((H / 4 + RANDOM % (H / 2)))
 BAND_H=$((H / 5))
-magick -size ${W}x${H} xc:black -fill white \
-  -draw "roundrectangle 0,$BAND_Y $W,$((BAND_Y + BAND_H)) 0,0" \
-  -blur 0x$((BAND_H / 3)) -alpha set -channel A -evaluate multiply 0.10 +channel "$TMP/band.png"
+BS_W=$((W / 4)); BS_H=$((H / 4))
+magick -size ${BS_W}x${BS_H} xc:black -fill white \
+  -draw "roundrectangle 0,$((BAND_Y/4)) $BS_W,$(((BAND_Y+BAND_H)/4)) 0,0" \
+  -blur 0x$((BAND_H / 12)) -resize ${W}x${H}\! \
+  -alpha set -channel A -evaluate multiply 0.10 +channel "$TMP/band.png"
 
 WORK="$TMP/work.png"
 cp "$IN" "$WORK"
