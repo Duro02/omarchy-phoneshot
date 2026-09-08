@@ -39,32 +39,24 @@ BarWidget {
 
   readonly property string paipingBin: Quickshell.env("HOME") + "/.local/bin/"
 
-  // 拖动中调这个:只记最新值+防抖;松手会再调 applyNow 立刻执行。
+  // 拖动中调这个:只更新属性+脏标记,不启动任何渲染,拖动中图纹丝不动。
+  // 渲染只在松手时启动( settled → applyNow 立刻执行)。
   function scheduleApply(key, val) {
     if (key === "ROTATE") rotateVal = val
     else if (key === "KEYSTONE") keystoneVal = val
     else if (key === "DEFOCUS") defocusVal = val
     else if (key === "MOTION") motionVal = val
     else if (key === "MOTION_ANGLE") motionAngleVal = val
-    // 只记最新值;渲染由 setProc 跑完触发,拖动中不跟手
+    // 只记脏;松手前绝不渲染
     pendingDirty = true
-    applyDebounce.restart()
   }
   function applyNow() {
-    applyDebounce.stop()
     if (setProc.running || !pendingDirty) return
     pendingDirty = false
     setProc.command = [paipingBin + "omarchy-paiping-set", "ALL",
       "ROTATE=" + rotateVal, "KEYSTONE=" + keystoneVal, "DEFOCUS=" + defocusVal,
       "MOTION=" + motionVal, "MOTION_ANGLE=" + motionAngleVal]
     setProc.running = true
-  }
-
-  Timer {
-    id: applyDebounce
-    interval: 400
-    repeat: false
-    onTriggered: root.applyNow()
   }
 
   // omarchy-paiping-set:写参数+重算预览图(~3秒);跑完刷新显示,有排队的再跑。
@@ -110,7 +102,7 @@ BarWidget {
   }
   Component.onCompleted: loadProc.running = true
 
-  // 一行参数:标签+数值+拖动条。dragged=拖动中(防抖),settled=松手(立刻)。
+  // 一行参数:标签+数值+拖动条。dragged=拖动中(只记值不渲染),settled=松手(启动渲染)。
   component SliderRow: Column {
     required property string label
     required property real min
