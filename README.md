@@ -58,6 +58,15 @@ bindings-snippet.lua            快捷键片段(给 install.sh 用, 也可手贴
 输出(768 预览路径数值完全一致)、横带 1/4 小画布、`MAGICK_THREAD_LIMIT=4`。
 768 预览仍 3 秒左右。瓶颈在 motion-blur 与全帧混合,机器内存吃紧时方差大。
 
+## 输出配置(`paiping-output`)
+
+跟调参文件分开。字段:`clipboard=original|paiping|none`(默认 paiping)、
+`save_original`/`save_paiping`(默认 true)、`output_dir`(空=跟原生目录)、
+`level=mild|mid|hard`(默认 mid,环境变量优先)、`notify`(默认 true)。
+规则:显式 `copy` 强制不落盘、显式 `save` 强制不碰剪贴板;非法值用默认并在通知里说;
+做旧版没人要(不存+不进剪贴板)就跳过十几秒渲染;锁只保选区+grim,渲染/剪贴板/通知不占锁
+(wl-copy 常驻继承锁 fd 会把后面的截图全静默挡掉,2026-09-08 血案)。
+
 ## 版本管理
 
 本仓库是唯一源码。以后改代码先改仓库,再跑 `./install.sh` 部署,

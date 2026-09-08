@@ -1,11 +1,11 @@
 #!/bin/bash
 # omarchy-paiping-screenshot — 可选接管 PRINT 的拍屏 wrapper
 # 开关关时: 原样透传给 omarchy-capture-screenshot,行为与原生一致
-# 开关开时: 走同样的选区+grim 流程,截图后再做旧,剪贴板放做旧版,原清晰版也保留
-#
+# 开关开时: 选区+grim,按 ~/.config/omarchy/paiping-output 决定去向:
+#   clipboard=original|paiping|none, save_original/save_paiping,
+#   output_dir, level, notify (缺席=全默认,见 README)
 # 用法: omarchy-paiping-screenshot [smart|region|windows|fullscreen] [slurp|copy|save]
 # 状态: ~/.config/omarchy/paiping-mode (on/off), 缺省 off
-# 强度: PAIPING_LEVEL=mild|mid|hard (缺省 mid)
 set -euo pipefail
 
 MODE_FILE="$HOME/.config/omarchy/paiping-mode"
@@ -17,17 +17,66 @@ if [[ $MODE != "on" ]]; then
   exec omarchy-capture-screenshot "$@"
 fi
 
+# ---- 输出配置 ----
+OCFG="$HOME/.config/omarchy/paiping-output"
+WARNS=()
+oget() { # oget KEY DEFAULT — 取值,去两端空白,丢行内注释
+  local v=""
+  if [[ -f $OCFG ]]; then
+    v=$(sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" "$OCFG" | tail -1)
+    v="${v%%#*}"
+    v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  fi
+  [[ -z $v ]] && v="$2"
+  printf '%s' "$v"
+}
+obool() { # obool OUTVAR VAL DEFAULT LABEL → 0/1 存变量;非法值回默认并记警告
+  local -n _o=$1 # 同 shell 调用,警告能带回(禁止 $() 包裹调它)
+  local _v
+  _v=$(printf '%s' "$2" | tr 'A-Z' 'a-z')
+  case "$_v" in
+    1|true|yes|on) _o=1 ;;
+    0|false|no|off) _o=0 ;;
+    *) _o=$3; WARNS+=("配置项非法已用默认:$4") ;;
+  esac
+}
+
+CLIP="$(oget clipboard paiping | tr 'A-Z' 'a-z')"
+case "$CLIP" in
+  original|paiping|none) ;;
+  *) WARNS+=("clipboard 非法已用默认:paiping"); CLIP="paiping" ;;
+esac
+obool SAVE_ORIG "$(oget save_original true)" 1 save_original
+obool SAVE_PAI "$(oget save_paiping true)" 1 save_paiping
+OUTDIR_CFG="$(oget output_dir "")"
+LEVEL_FILE="$(oget level mid)"
+case "$LEVEL_FILE" in
+  mild|mid|hard) ;;
+  *) WARNS+=("level 非法已用默认:mid"); LEVEL_FILE="mid" ;;
+esac
+LEVEL="${PAIPING_LEVEL:-$LEVEL_FILE}" # 环境变量显式指定优先
+obool NOTIFY "$(oget notify true)" 1 notify
+
 [[ -f ~/.config/user-dirs.dirs ]] && source ~/.config/user-dirs.dirs
 OUTPUT_DIR="${OMARCHY_SCREENSHOT_DIR:-${XDG_PICTURES_DIR:-$HOME/Pictures}}"
+if [[ -n $OUTDIR_CFG ]]; then OUTPUT_DIR="${OUTDIR_CFG/#\~/$HOME}"; fi
 mkdir -p "$OUTPUT_DIR"
+
+say() { # say 标题 正文 [额外参数...] — notify 关了就静默
+  if [[ $NOTIFY == "1" ]]; then
+    omarchy-notification-send "$@" || true
+  fi
+  return 0
+}
 
 pkill slurp && exit 0
 
-# 做旧期间再按 PRINT 直接忽略,防止叠加开第二个选区
+# 锁只保选区+grim 这一段:慢渲染/剪贴板/通知都不占锁,否则 wl-copy 常驻会把后面的截图全挡掉。
+# (血的教训 2026-09-08:wl-copy 继承锁 fd 常驻,PRINT 再按也静默无事。)
 LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/omarchy-paiping.lock"
 if command -v flock >/dev/null; then
   exec 9>"$LOCK_FILE"
-  flock -n 9 || exit 0
+  flock -n 9 || { say "⚠️ 拍屏忙" "上一次截图选区还没结束,等它选完再按"; exit 0; }
 fi
 
 SCREENSHOT_EDITOR="${OMARCHY_SCREENSHOT_EDITOR:-tensaku-edit}"
@@ -39,15 +88,12 @@ set -- "${ARGS[@]}"
 
 CAP_MODE="${1:-smart}"
 PROCESSING="${2:-slurp}"
-LEVEL="${PAIPING_LEVEL:-mid}"
 
 NO_HW_CURSORS=$(hyprctl getoption cursor:no_hardware_cursors -j | jq '.int')
 set_no_hw_cursors() {
   hyprctl eval "hl.config({ cursor = { no_hardware_cursors = $1 } })" &>/dev/null ||
     hyprctl keyword cursor:no_hardware_cursors "$1" &>/dev/null
 }
-# 冻屏(hyprpicker freeze)只需要在选区+grim期间活着。做旧要跑好几秒,
-# 必须在 grim 之后立刻解冻,否则屏幕一直冻着+十字星,看着像没截完。
 release_freeze() {
   if [[ -n ${FREEZE_PID:-} ]]; then
     kill "$FREEZE_PID" 2>/dev/null || true
@@ -55,8 +101,10 @@ release_freeze() {
   fi
   set_no_hw_cursors "$NO_HW_CURSORS"
 }
+TMPD=""
 cleanup() {
   release_freeze
+  [[ -n $TMPD ]] && rm -rf "$TMPD"
 }
 trap cleanup EXIT
 
@@ -64,41 +112,81 @@ set_no_hw_cursors 0
 { read -r FREEZE_PID; read -r SELECTION; } < <(omarchy-capture-region "$CAP_MODE" --keep-freeze)
 [[ -z ${SELECTION:-} ]] && exit 0
 
+# 模板语义(原生对齐)+配置过滤:
+# slurp 全按配置;显式 copy 强制不落盘(剪贴板按配置);显式 save 强制不碰剪贴板(存按配置)
+SAVE_RAW=$SAVE_ORIG; SAVE_PAI_F=$SAVE_PAI; CLIP_F=$CLIP
+case "$PROCESSING" in
+  copy) SAVE_RAW=0; SAVE_PAI_F=0 ;;
+  save) CLIP_F=none ;;
+esac
+
 STAMP="$(date +'%Y-%m-%d_%H-%M-%S')"
-RAW="$OUTPUT_DIR/screenshot-${STAMP}.png"
-PAIPING="$OUTPUT_DIR/screenshot-${STAMP}-paiping.jpg"
+TMPD="$(mktemp -d)"
+RAW="$OUTPUT_DIR/screenshot-${STAMP}.png"; [[ $SAVE_RAW == "0" ]] && RAW="$TMPD/raw.png"
+PAI="$OUTPUT_DIR/screenshot-${STAMP}-paiping.jpg"; [[ $SAVE_PAI_F == "0" ]] && PAI="$TMPD/pai.jpg"
+
+grim -g "$SELECTION" "$RAW" || exit 1
+# 慢活开始前放锁:渲染/wl-copy/通知都不再挡后面的截图
+eval 'exec 9>&-' 2>/dev/null || true
+release_freeze # 先解冻再慢慢做旧
 
 paiping_one() {
   local src="$1" dst="$2"
   if command -v omarchy-paiping-apply >/dev/null; then
     omarchy-paiping-apply "$src" "$dst" "$LEVEL"
   else
-    # 开发目录直跑还没 install 时的兜底
     "$(dirname "$0")/omarchy-paiping-apply" "$src" "$dst" "$LEVEL"
   fi
 }
 
-case "$PROCESSING" in
-  slurp)
-    grim -g "$SELECTION" "$RAW" || exit 1
-    release_freeze # 先解冻再慢慢做旧
-    paiping_one "$RAW" "$PAIPING"
-    echo "$PAIPING"
-    wl-copy --type image/jpeg <"$PAIPING"
-    omarchy-notification-send "📸 拍屏已保存 (paiping/$LEVEL)" "清晰原图也在 Pictures 里,点我编辑做旧版" \
-      --image "$PAIPING" --exec "$SCREENSHOT_EDITOR" "$PAIPING" || true
-    ;;
-  copy)
-    grim -g "$SELECTION" "$RAW" || exit 1
-    release_freeze # 先解冻再慢慢做旧
-    paiping_one "$RAW" "$PAIPING"
-    wl-copy --type image/jpeg <"$PAIPING"
-    rm -f "$RAW"  # copy 模式不落盘,保持和原生一致
-    ;;
-  save)
-    grim -g "$SELECTION" "$RAW" || exit 1
-    release_freeze # 先解冻再慢慢做旧
-    paiping_one "$RAW" "$PAIPING"
-    echo "$PAIPING"
-    ;;
+# 做旧版有人要(存盘或进剪贴板)才渲染,否则省下十几秒
+NEED_RENDER=0
+if [[ $SAVE_PAI_F == "1" || $CLIP_F == "paiping" ]]; then NEED_RENDER=1; fi
+if [[ $NEED_RENDER == "1" ]]; then paiping_one "$RAW" "$PAI"; fi
+
+# 剪贴板(尽力而为:文件已安全,剪贴板失败只记警告)
+CLIP_DONE="none"
+case "$CLIP_F" in
+  paiping)
+    if wl-copy --type image/jpeg <"$PAI" 2>/dev/null; then CLIP_DONE="paiping"; else WARNS+=("剪贴板写入失败"); fi ;;
+  original)
+    if wl-copy --type image/png <"$RAW" 2>/dev/null; then CLIP_DONE="original"; else WARNS+=("剪贴板写入失败"); fi ;;
 esac
+
+# 回显存下来的文件(兼容原生 echo 路径的行规)
+if [[ $SAVE_RAW == "1" ]]; then echo "$OUTPUT_DIR/screenshot-${STAMP}.png"; fi
+if [[ $SAVE_PAI_F == "1" ]]; then echo "$OUTPUT_DIR/screenshot-${STAMP}-paiping.jpg"; fi
+
+# 通知:按实际行为组装,不撒谎
+if [[ $SAVE_RAW == "0" && $SAVE_PAI_F == "0" && $CLIP_DONE == "none" ]]; then
+  say "⚠️ 本次截图未保留" "没存盘也没进剪贴板,检查 paiping-output 配置"
+else
+  if [[ $SAVE_PAI_F == "1" || $CLIP_DONE == "paiping" ]]; then
+    TITLE="📸 拍屏已保存"
+  else
+    TITLE="📸 截图已保存"
+  fi
+  BODY=""
+  case "$CLIP_DONE" in
+    paiping) BODY="做旧版已进剪贴板。" ;;
+    original) BODY="原图已进剪贴板。" ;;
+    *) BODY="未进剪贴板。" ;;
+  esac
+  if [[ $SAVE_RAW == "1" && $SAVE_PAI_F == "1" ]]; then
+    BODY="${BODY}原图与做旧版都在 $(basename "$OUTPUT_DIR") 里。"
+  elif [[ $SAVE_PAI_F == "1" ]]; then
+    BODY="${BODY}只存了做旧版,原图未保留。"
+  elif [[ $SAVE_RAW == "1" ]]; then
+    BODY="${BODY}只存了原图,做旧版未保留。"
+  else
+    BODY="${BODY}未存盘,再复制就没了。"
+  fi
+  [[ ${#WARNS[@]} -gt 0 ]] && BODY="${BODY} 注意:${WARNS[*]}"
+  if [[ $SAVE_PAI_F == "1" ]]; then
+    say "$TITLE" "$BODY 点击编辑做旧版" --image "$PAI" --exec "$SCREENSHOT_EDITOR" "$PAI"
+  elif [[ $SAVE_RAW == "1" ]]; then
+    say "$TITLE" "$BODY 点击编辑原图" --image "$RAW" --exec "$SCREENSHOT_EDITOR" "$RAW"
+  else
+    say "$TITLE" "$BODY"
+  fi
+fi
