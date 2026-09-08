@@ -53,8 +53,8 @@ bindings-snippet.lua            快捷键片段(给 install.sh 用, 也可手贴
 
 ## 版本管理
 
-本仓库是唯一源码。以后改代码先改仓库,再跑 `./install.sh`
-(部署 QML 到插件目录,shell 自动热重载)或手动 cp。
+本仓库是唯一源码。以后改代码先改仓库,再跑 `./install.sh` 部署,
+最后 `omarchy restart shell`(热重载日志不可信:它不刷新已显示挂件,必须重启)。
 `bin/` 通过软链实时生效;`plugins/duro.paiping/` 靠 install.sh 拷贝部署。
 直接改 `~/.config` 下的文件必须同步回仓库再提交。
 - 注意:Qt6 的 ShaderEffect 不再接受内联 GLSL(必须预编译 .qsb)——

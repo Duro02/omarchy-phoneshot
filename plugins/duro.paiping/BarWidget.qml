@@ -88,16 +88,24 @@ BarWidget {
           else if (kv[0] === "MOTION_ANGLE") root.motionAngleVal = v
         }
         // 参数恢复完再看预览图在不在,缺失(刚安装/清过缓存)才补渲染一次
-        root.previewCheck.running = true
+        // TEMP:直连引用曾报 undefined,改走属性中转
+        root.needPreviewCheck = true
       }
     }
   }
   // 面板打开时:参数从文件恢复上次的值,预览图直接显示上次渲染好的。
+  // 缺失才补渲染一次(走 stdout 文本,不依赖 exitCode 注入)。
+  // running 绑属性 flag:StdioCollector 回调里直引兄弟 id 会报 undefined,绕开。
+  property bool needPreviewCheck: false
   Process {
     id: previewCheck
-    command: ["test", "-f", root.previewFile]
-    onExited: {
-      if (previewCheck.exitCode !== 0) root.scheduleApply("ROTATE", root.rotateVal)
+    running: root.needPreviewCheck
+    command: ["sh", "-c", "if test -f \"$1\"; then echo PRESENT; else echo MISSING; fi", "sh", root.previewFile]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        if (String(text).indexOf("MISSING") >= 0) root.scheduleApply("ROTATE", root.rotateVal)
+      }
     }
   }
   Component.onCompleted: loadProc.running = true

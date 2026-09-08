@@ -11,8 +11,9 @@ for f in bin/*; do
 done
 echo "linked: $(ls ~/.local/bin/omarchy-paiping-*)"
 
-# 插件部署(幂等):仓库源码 -> shell 插件目录。改完 QML 跑一遍 install.sh 即可,
-# shell 文件监听会自动热重载。sample.png 只在缺失时放(别覆盖用户换过的示例图)。
+# 插件部署(幂等):仓库源码 -> shell 插件目录。改完 QML 跑一遍 install.sh,
+# 再 omarchy restart shell (注意:shell 的插件热重载不会刷新已显示的挂件,
+# 必须重启 shell,已用图标字形变化实证)。sample.png 只在缺失时放。
 mkdir -p ~/.config/omarchy/plugins/duro.paiping
 cp -f plugins/duro.paiping/manifest.json plugins/duro.paiping/BarWidget.qml \
   ~/.config/omarchy/plugins/duro.paiping/
