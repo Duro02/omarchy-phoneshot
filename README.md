@@ -34,7 +34,7 @@ bindings-snippet.lua            快捷键片段(给 install.sh 用, 也可手贴
 ## 预览(拖完渲染,所见即所得)
 
 面板右列直接显示 magick 渲染图,跟 PRINT 真实截图同一引擎同一参数:
-拖动滑杆(400ms 防抖,松手立刻)-> `omarchy-paiping-set` 写参数+重算
+拖动滑杆只记值不渲染,松手才 `omarchy-paiping-set` 写参数+重算
 `~/.cache/paiping/preview.jpg` (~3秒,状态条显示"渲染中…") -> 面板刷新。
 拖动过程中不跟手,停手等渲染——渲染即终图质量,无需二次确认。
 - 参数(`paiping-params`)+渲染图(`preview.jpg`)双持久化:下次打开面板,
