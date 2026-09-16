@@ -222,6 +222,7 @@ BarWidget {
           // 拍摄键:收起面板 -> 选区截图 -> 做旧,全流程在插件目录脚本里,
           // 不接管 PRINT。shotProc 有 stdout 无收集会警告,无妨。
           Button {
+            id: shotBtn
             width: parent.width
             bordered: true
             iconText: "󰄛"
@@ -231,6 +232,27 @@ BarWidget {
             onClicked: {
               root.popupOpen = false
               if (!shotProc.running) shotProc.running = true
+            }
+          }
+
+          // 随机一组拍摄参数:侧视/失焦/拖影用三角分布偏小幅值,更像真拍;
+          // 写参数文件+重渲染,预览所见即所得。与拍摄键同高。
+          Button {
+            width: parent.width
+            height: shotBtn.implicitHeight
+            bordered: true
+            text: root.tr("随机一组参数", "Randomize parameters")
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.rotateVal = Math.round((Math.random() * 2 - 1) * 5 * 2) / 2
+              var k = Math.random() + Math.random() - 1            // 三角分布 [-1,1]
+              root.keystoneVal = Math.round(k * 12 * 2) / 2
+              root.defocusVal = Math.round(Math.random() * Math.random() * 2 * 10) / 10
+              root.motionVal = Math.round(Math.random() * Math.random() * 8 * 2) / 2
+              root.motionAngleVal = Math.round(Math.random() * 36) * 5
+              root.pendingDirty = true
+              root.applyNow()
             }
           }
 
@@ -283,34 +305,6 @@ BarWidget {
           }
         }
 
-        // 随机一组拍摄参数:侧视/失焦/拖影用三角分布偏小幅值,更像真拍;
-        // 写参数文件+重渲染,预览所见即所得。
-        // 在滑块下方剩余空间里居中:上间距 = 下间距。
-        Item {
-          anchors.top: topCol.bottom
-          anchors.bottom: parent.bottom
-          width: parent.width
-
-          Button {
-            width: parent.width
-            anchors.centerIn: parent
-            bordered: true
-            text: root.tr("随机一组参数", "Randomize parameters")
-            foreground: root.bar.foreground
-            fontFamily: root.bar.fontFamily
-            fontSize: Style.font.bodySmall
-            onClicked: {
-              root.rotateVal = Math.round((Math.random() * 2 - 1) * 5 * 2) / 2
-              var k = Math.random() + Math.random() - 1            // 三角分布 [-1,1]
-              root.keystoneVal = Math.round(k * 12 * 2) / 2
-              root.defocusVal = Math.round(Math.random() * Math.random() * 2 * 10) / 10
-              root.motionVal = Math.round(Math.random() * Math.random() * 8 * 2) / 2
-              root.motionAngleVal = Math.round(Math.random() * 36) * 5
-              root.pendingDirty = true
-              root.applyNow()
-            }
-          }
-        }
       }
 
       // ---------- 右:预览 ----------
