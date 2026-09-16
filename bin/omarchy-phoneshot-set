@@ -1,17 +1,17 @@
 #!/bin/bash
-# omarchy-paiping-set — 面板拖动条的后端: 写参数文件 + 重算预览图。
+# omarchy-phoneshot-set — 面板拖动条的后端: 写参数文件 + 重算预览图。
 # 用法:
-#   omarchy-paiping-set <KEY> <VAL>          单键(兼容老调用)
-#   omarchy-paiping-set ALL KEY=VAL ...      全量(面板用,一次写完渲一次,
+#   omarchy-phoneshot-set <KEY> <VAL>          单键(兼容老调用)
+#   omarchy-phoneshot-set ALL KEY=VAL ...      全量(面板用,一次写完渲一次,
 #                                            避免快拖多滑杆时单槽 pending 丢键)
 # 预览图固定用 mid 预设打底(滑杆之外的维度);PRINT 截图走同一套参数。
 set -euo pipefail
 
-PARAMS_FILE="$HOME/.config/omarchy/paiping-params"
-PLUGIN_DIR="$HOME/.config/omarchy/plugins/duro.paiping"
+PARAMS_FILE="$HOME/.config/omarchy/phoneshot-params"
+PLUGIN_DIR="$HOME/.config/omarchy/plugins/duro.phoneshot"
 # 预览图必须放 ~/.cache:写进插件目录会触发 shell 的文件监听,
 # 每拖一次滑杆就整插件热重载一次(面板闪烁、手感全毁)。
-CACHE_DIR="$HOME/.cache/paiping"
+CACHE_DIR="$HOME/.cache/phoneshot"
 mkdir -p "$CACHE_DIR"
 
 # 取值范围钳制(跟面板滑杆一致)
@@ -53,6 +53,6 @@ else
   write_one "$1" "$2"
 fi
 
-APPLY="$(command -v omarchy-paiping-apply || echo "$(dirname "$0")/omarchy-paiping-apply")"
+APPLY="$(command -v omarchy-phoneshot-apply || echo "$(dirname "$0")/omarchy-phoneshot-apply")"
 [[ -f $PLUGIN_DIR/sample.png ]] || { echo "no sample.png" >&2; exit 1; }
 "$APPLY" "$PLUGIN_DIR/sample.png" "$CACHE_DIR/preview.jpg" mid

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "duro.phoneshot",
+  "name": "Phoneshot",
+  "version": "0.2.0",
+  "author": "duro",
+  "description": "Turn screenshots into phone-photo-of-screen images, with a live-preview parameter panel",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Phoneshot",
+    "description": "Phoneshot parameter panel",
+    "category": "Utilities",
+    "allowMultiple": false
+  }
+}

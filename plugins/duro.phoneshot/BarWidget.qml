@@ -9,14 +9,26 @@ import qs.Commons
 // 预览与 PRINT 真实截图同一引擎同一参数,所见即所得。
 BarWidget {
   id: root
-  moduleName: "duro.paiping"
+  moduleName: "duro.phoneshot"
 
   property bool popupOpen: false
   function close() { popupOpen = false }
 
+  // 界面语言: ~/.config/omarchy/phoneshot-lang (zh|en,缺省 en)
+  property string lang: "en"
+  function tr(zh, en) { return lang.indexOf("zh") === 0 ? zh : en }
+  Process {
+    id: langProc
+    command: ["cat", Quickshell.env("HOME") + "/.config/omarchy/phoneshot-lang"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: { var l = String(text).trim(); if (l) root.lang = l }
+    }
+  }
+
   // 渲染预览放 ~/.cache(写插件目录会触发 shell 热重载,拖一次闪一次)。
   // preview.jpg 持久化:下次打开面板直接显示上次渲染好的,不重新渲染。
-  readonly property string previewFile: Quickshell.env("HOME") + "/.cache/paiping/preview.jpg"
+  readonly property string previewFile: Quickshell.env("HOME") + "/.cache/phoneshot/preview.jpg"
 
   // 强制 Image 重载磁盘文件(同一 URL 不会自动刷新)。
   function refreshPreview() {
@@ -37,7 +49,7 @@ BarWidget {
 
 
 
-  readonly property string paipingBin: Quickshell.env("HOME") + "/.local/bin/"
+  readonly property string phoneshotBin: Quickshell.env("HOME") + "/.local/bin/"
 
   // 拖动中调这个:只更新属性+脏标记,不启动任何渲染,拖动中图纹丝不动。
   // 渲染只在松手时启动( settled → applyNow 立刻执行)。
@@ -53,13 +65,13 @@ BarWidget {
   function applyNow() {
     if (setProc.running || !pendingDirty) return
     pendingDirty = false
-    setProc.command = [paipingBin + "omarchy-paiping-set", "ALL",
+    setProc.command = [phoneshotBin + "omarchy-phoneshot-set", "ALL",
       "ROTATE=" + rotateVal, "KEYSTONE=" + keystoneVal, "DEFOCUS=" + defocusVal,
       "MOTION=" + motionVal, "MOTION_ANGLE=" + motionAngleVal]
     setProc.running = true
   }
 
-  // omarchy-paiping-set:写参数+重算预览图(~3秒);跑完刷新显示,有排队的再跑。
+  // omarchy-phoneshot-set:写参数+重算预览图(~3秒);跑完刷新显示,有排队的再跑。
   Process {
     id: setProc
     onExited: {
@@ -71,7 +83,7 @@ BarWidget {
   // 启动时读回上次调的参数,滑杆跟文件对齐(文件不存在就用 mid 初值)。
   Process {
     id: loadProc
-    command: ["cat", Quickshell.env("HOME") + "/.config/omarchy/paiping-params"]
+    command: ["cat", Quickshell.env("HOME") + "/.config/omarchy/phoneshot-params"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -108,7 +120,7 @@ BarWidget {
       }
     }
   }
-  Component.onCompleted: loadProc.running = true
+  Component.onCompleted: { loadProc.running = true; langProc.running = true }
 
   // 一行参数:标签+数值+拖动条。dragged=拖动中(只记值不渲染),settled=松手(启动渲染)。
   component SliderRow: Column {
@@ -166,7 +178,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: "󰄀"
-    tooltipText: "拍屏:截图做旧参数"
+    tooltipText: root.tr("拍屏:截图做旧参数", "Phoneshot: screen-photo styling")
 
     onPressed: function(b) {
       if (b === Qt.LeftButton) root.popupOpen = !root.popupOpen
@@ -194,7 +206,7 @@ BarWidget {
         spacing: Style.space(10)
 
         PanelSectionHeader {
-          text: "参数"
+          text: root.tr("参数", "Parameters")
           foreground: root.bar.foreground
           fontFamily: root.bar.fontFamily
         }
@@ -205,39 +217,60 @@ BarWidget {
           spacing: Style.space(8)
 
           SliderRow {
-            label: "旋转(−顺/+逆)"
+            label: root.tr("旋转(−顺/+逆)", "Roll (−cw/+ccw)")
             min: -5; max: 5; step: 0.5
             val: root.rotateVal
             onDragged: function(v) { root.scheduleApply("ROTATE", Math.round(v * 10) / 10) }
             onSettled: function(v) { root.scheduleApply("ROTATE", Math.round(v * 10) / 10); root.applyNow() }
           }
           SliderRow {
-            label: "侧视(左−/右+)"
+            label: root.tr("侧视(左−/右+)", "Side view (−left/+right)")
             min: -12; max: 12; step: 0.5
             val: root.keystoneVal
             onDragged: function(v) { root.scheduleApply("KEYSTONE", Math.round(v * 10) / 10) }
             onSettled: function(v) { root.scheduleApply("KEYSTONE", Math.round(v * 10) / 10); root.applyNow() }
           }
           SliderRow {
-            label: "失焦"
+            label: root.tr("失焦", "Defocus")
             min: 0; max: 2; step: 0.1
             val: root.defocusVal
             onDragged: function(v) { root.scheduleApply("DEFOCUS", Math.round(v * 10) / 10) }
             onSettled: function(v) { root.scheduleApply("DEFOCUS", Math.round(v * 10) / 10); root.applyNow() }
           }
           SliderRow {
-            label: "拖影"
+            label: root.tr("拖影", "Motion blur")
             min: 0; max: 8; step: 0.5
             val: root.motionVal
             onDragged: function(v) { root.scheduleApply("MOTION", Math.round(v * 10) / 10) }
             onSettled: function(v) { root.scheduleApply("MOTION", Math.round(v * 10) / 10); root.applyNow() }
           }
           SliderRow {
-            label: "拖影方向"
+            label: root.tr("拖影方向", "Blur angle")
             min: 0; max: 180; step: 5; integer: true; decimals: 0
             val: root.motionAngleVal
             onDragged: function(v) { root.scheduleApply("MOTION_ANGLE", Math.round(v)) }
             onSettled: function(v) { root.scheduleApply("MOTION_ANGLE", Math.round(v)); root.applyNow() }
+          }
+        }
+
+        // 随机一组拍摄参数:侧视/失焦/拖影用三角分布偏小幅值,更像真拍;
+        // 写参数文件+重渲染,预览所见即 PRINT 所得。
+        Button {
+          width: parent.width
+          bordered: true
+          text: root.tr("随机一组参数", "Randomize parameters")
+          foreground: root.bar.foreground
+          fontFamily: root.bar.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: {
+            root.rotateVal = Math.round((Math.random() * 2 - 1) * 5 * 2) / 2
+            var k = Math.random() + Math.random() - 1            // 三角分布 [-1,1]
+            root.keystoneVal = Math.round(k * 12 * 2) / 2
+            root.defocusVal = Math.round(Math.random() * Math.random() * 2 * 10) / 10
+            root.motionVal = Math.round(Math.random() * Math.random() * 8 * 2) / 2
+            root.motionAngleVal = Math.round(Math.random() * 36) * 5
+            root.pendingDirty = true
+            root.applyNow()
           }
         }
       }
@@ -248,7 +281,7 @@ BarWidget {
         spacing: Style.space(8)
 
         PanelSectionHeader {
-          text: "预览"
+          text: root.tr("预览", "Preview")
           foreground: root.bar.foreground
           fontFamily: root.bar.fontFamily
         }
@@ -281,7 +314,7 @@ BarWidget {
         Text {
           width: parent.width
           wrapMode: Text.WordWrap
-          text: (setProc.running ? "渲染中…" : "R" + root.rotateVal + " K" + root.keystoneVal + " D" + root.defocusVal + " M" + root.motionVal + "@" + root.motionAngleVal + " · 上次渲染效果,拖动更新")
+          text: (setProc.running ? root.tr("渲染中…", "Rendering…") : "R" + root.rotateVal + " K" + root.keystoneVal + " D" + root.defocusVal + " M" + root.motionVal + "@" + root.motionAngleVal + " · " + root.tr("上次渲染效果,拖动更新", "last render, drag to update"))
           color: Qt.darker(root.bar.foreground, 1.4)
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.caption

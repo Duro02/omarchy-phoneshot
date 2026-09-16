@@ -1,7 +1,7 @@
 #!/bin/bash
-# omarchy-paiping-overlays — 预渲染面板代理层用的静态纹理。
+# omarchy-phoneshot-overlays — 预渲染面板代理层用的静态纹理。
 # 只跟 sample 尺寸有关、跟参数无关, sample 一换跑一次即可。
-# 输出到 ~/.cache/paiping/ (别进插件目录,会触发 shell 热重载):
+# 输出到 ~/.cache/phoneshot/ (别进插件目录,会触发 shell 热重载):
 #   ov-moire.png  灰底斜网格(跟终图同手艺:2x画线再point缩回,角度固定)
 #   ov-grille.png 透明底黑竖条(终图 softlight 光栅的 alpha 近似)
 #   ov-scan.png   透明底黑横条(终图 multiply 扫描线的 alpha 近似)
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 SAMPLE="${1:?usage: $0 <sample.png> [outdir]}"
-OUT="${2:-$HOME/.cache/paiping}"
+OUT="${2:-$HOME/.cache/phoneshot}"
 mkdir -p "$OUT"
 
 W=$(identify -format "%w" "$SAMPLE")

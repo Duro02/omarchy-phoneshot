@@ -1,0 +1,267 @@
+#!/bin/bash
+# omarchy-phoneshot-apply v2 — 手机拍屏幕效果
+# 做法参考: CRT shader 社区配方(crt-fx: scanlines/phosphor/chromatic/bloom/vignette)
+#           + silentMoire 的人工摩尔纹思路(叠加错位细网格再重采样)
+# 用法: omarchy-phoneshot-apply <input> <output> [mild|mid|hard]
+# 面板参数(优先级: LEVEL预设 < 参数文件 < 环境变量):
+#   ROTATE       面内旋转,单位度,正=逆时针/负=顺时针,确定性 (0=摆正)
+#   KEYSTONE     水平侧视,单位度,正=从右侧拍/负=从左侧拍,近侧拉高远侧压缩 (0=正对)
+#   DEFOCUS      失焦模糊 sigma (0=实焦)
+#   MOTION       手抖拖影长度 px (0=关)
+#   MOTION_ANGLE 拖影方向角度 (空=每次随机)
+# 参数文件: ~/.config/omarchy/phoneshot-params (KEY=VALUE,面板拖动条维护,PRINT截图同样生效)
+# 分辨率归一:滑杆单位 = 768px 参考宽度下的 px;引擎按 S=W/768 自动换算
+# (失焦σ/拖影/摩尔间距/光栅周期/扫描线周期/色散),面板预览(768)与 4K 终图观感一致。
+# ROTATE(度)/KEYSTONE(比例)/横带/噪点本身无量纲或已相对化,不受影响。
+set -euo pipefail
+
+IN="${1:?usage: $0 <input> <output> [mild|mid|hard]}"
+OUT="${2:?usage: $0 <input> <output> [mild|mid|hard]}"
+LEVEL="${3:-${PHONESHOT_LEVEL:-mid}}"
+
+command -v magick >/dev/null || { echo "need ImageMagick (magick)" >&2; exit 1; }
+[[ -f $IN ]] || { echo "input not found: $IN" >&2; exit 1; }
+
+read W H < <(identify -format '%w %h\n' "$IN")
+((W * H < 400)) && { cp "$IN" "$OUT"; exit 0; }
+
+# 线程:blur/motion/noise 是内存带宽型,线程一多抢带宽反而更慢(实测 11 线程 user 时间是 wall 的 7 倍);
+# 默认压到 4,内存也宽松。PHONESHOT_MAX_WIDTH/MAGICK_THREAD_LIMIT 均可环境覆盖。
+export MAGICK_THREAD_LIMIT="${MAGICK_THREAD_LIMIT:-4}"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+# 工作宽度封顶:4K 全屏 8MP 直接跑要一分钟。先缩到封顶宽度(默认 1920,0=不限)再做全套,
+# S 按封顶后宽度算,观感与全尺寸一致;RAW 原图由截图脚本另存,不受影响。
+CAP_W="${PHONESHOT_MAX_WIDTH:-1920}"
+if (( CAP_W > 0 && W > CAP_W )); then
+  magick "$IN" -resize ${CAP_W}x "$TMP/capped.png"
+  IN="$TMP/capped.png"
+  read W H < <(identify -format '%w %h\n' "$IN")
+fi
+
+S=$(awk -v w="$W" 'BEGIN{ s=w/768; if(s<0.5)s=0.5; if(s>6)s=6; printf "%.3f", s }')
+
+case "$LEVEL" in
+  mild) MOIRE=16; GRILLE=0.06; SCAN=0.05; CHROMA=1; BLUR="0x0.5"; NOISE=0.10; SAT=95; QUALITY=88 ;;
+  hard) MOIRE=42; GRILLE=0.14; SCAN=0.12; CHROMA=2; BLUR="0x1.2"; NOISE=0.25; SAT=86; QUALITY=78 ;;
+  *)    MOIRE=28; GRILLE=0.10; SCAN=0.08; CHROMA=1; BLUR="0x0.8"; NOISE=0.16; SAT=91; QUALITY=84 ;;
+esac
+
+# ---- 面板参数覆盖:预设 < 参数文件 < 环境变量 ----
+PARAMS_FILE="${HOME}/.config/omarchy/phoneshot-params"
+pget() { # pget KEY fallback — 只认白名单内的整行 KEY=VALUE
+  local v=""
+  [[ -f $PARAMS_FILE ]] && v=$(sed -n "s/^$1=//p" "$PARAMS_FILE" | tail -1)
+  [[ -z $v ]] && v="$2"
+  printf '%s' "$v"
+}
+DEFOCUS="${BLUR#0x}" # 预设里的 blur sigma 即默认失焦量
+ROTATE="$(pget ROTATE 0)"
+KEYSTONE="$(pget KEYSTONE 0)"
+DEFOCUS="$(pget DEFOCUS "$DEFOCUS")"
+MOTION="$(pget MOTION 0)"
+MOTION_ANGLE="$(pget MOTION_ANGLE "")"
+[[ -n ${PHONESHOT_ROTATE:-} ]] && ROTATE="$PHONESHOT_ROTATE"
+[[ -n ${PHONESHOT_KEYSTONE:-} ]] && KEYSTONE="$PHONESHOT_KEYSTONE"
+[[ -n ${PHONESHOT_DEFOCUS:-} ]] && DEFOCUS="$PHONESHOT_DEFOCUS"
+[[ -n ${PHONESHOT_MOTION:-} ]] && MOTION="$PHONESHOT_MOTION"
+[[ -n ${PHONESHOT_MOTION_ANGLE:-} ]] && MOTION_ANGLE="$PHONESHOT_MOTION_ANGLE"
+# 数值钳制:手改参数文件写负数/超界值只该降级,不该崩渲染
+ROTATE=$(awk -v v="$ROTATE" 'BEGIN{v+=0; if(v>45)v=45; if(v<-45)v=-45; print v}')
+KEYSTONE=$(awk -v v="$KEYSTONE" 'BEGIN{v+=0; if(v>30)v=30; if(v<-30)v=-30; print v}')
+DEFOCUS=$(awk -v v="$DEFOCUS" 'BEGIN{v+=0; if(v<0)v=0; if(v>5)v=5; print v}')
+MOTION=$(awk -v v="$MOTION" 'BEGIN{v+=0; if(v<0)v=0; if(v>30)v=30; print v}')
+BLUR="0x$(awk -v d="$DEFOCUS" -v s="$S" 'BEGIN{ printf "%.2f", d*s }')"
+
+# 失焦联动压摩尔:糊了就看不见像素结构了,摩尔随失焦自动衰减(物理,不是品味)
+MOIRE=$(awk -v m="$MOIRE" -v d="$DEFOCUS" 'BEGIN{ f=1-d/2.5; if(f<0.2)f=0.2; printf "%d", m*f }')
+
+# ---- 几何预算:畸变后裁到只含原图像素的最大内接矩形,宁缺毋滥 ----
+# 以前填黑裁回原尺寸,四角黑楔形是"画外内容",一眼假。现在预算终图尺寸 TW×TH:
+# keystone(d>0): a=H*0.01d c=W*0.004d,四角 TL(c,a) TR(W,-a) BL(c,H-a) BR(W,H+a),
+#   左缘压到 x=c 竖线、右缘在 x=W 纵向超出画布,最大内接矩形=[c,W]x[a,H-a];
+#   d<0 镜像:左缘伸出画布(天然被裁),=[0,W]x[|a|,H-|a|]。
+# rotate(θ): 旋转矩形最大面积内接矩形半轴 x=(Wcθ-Hsθ)/2cos2θ, y=(Hcθ-Wsθ)/2cos2θ
+#   (四角各触一边);超宽/高超宽比下解出负值时退等比公式。
+# 四边各内缩 1px,消掉畸变边缘贴黑底的 AA 暗线。
+TW=$W; TH=$H
+KACTIVE=0; RACTIVE=0
+awk -v k="$KEYSTONE" 'BEGIN{ exit !(k < -0.01 || k > 0.01) }' && KACTIVE=1
+awk -v r="$ROTATE" 'BEGIN{ exit !(r >= 0.25 || r <= -0.25) }' && RACTIVE=1
+
+if (( KACTIVE )); then
+  read KX KY KW KH < <(awk -v W="$TW" -v H="$TH" -v d="$KEYSTONE" 'BEGIN{
+    a=H*0.01*d; c=W*0.004*d; aa=(a<0?-a:a)
+    x0=(c>0?c:0)+1
+    printf "%d %d %d %d\n", x0, aa+1, W-(c>0?c:0)-2, H-2*aa-2 }')
+  TW=$KW; TH=$KH
+fi
+if (( RACTIVE )); then
+  read RW RH < <(awk -v W="$TW" -v H="$TH" -v deg="$ROTATE" 'BEGIN{
+    t=(deg<0?-deg:deg)*3.14159265/180; c=cos(t); s=sin(t)
+    x=(W*c-H*s)/(2*(c*c-s*s)); y=(H*c-W*s)/(2*(c*c-s*s))
+    # 解为负或退化细条(tanθ→H/W 邻域)都退等比公式
+    if (x<=0 || y<=0 || x<W*0.05 || y<H*0.05) { k=W/(W*c+H*s); k2=H/(W*s+H*c); if(k2<k)k=k2; x=W*k/2; y=H*k/2 }
+    printf "%d %d\n", 2*x-2, 2*y-2 }')
+  TW=$RW; TH=$RH
+fi
+
+# 摩尔画布:输出宽压到 960 画(768 预览时 MW=TW,路径与今天完全一致,预览零变化),
+# 2x 画布 point 抽回就是那次"传感器重采样",出混叠后再放大到 TW。大图 13s→2s。
+MW=$TW; (( MW > 960 )) && MW=960
+MH=$((TH * MW / TW))
+M2W=$((MW * 2)); M2H=$((MH * 2))
+
+# ---- 阶段一:全部并行。纹理生成与畸变链互不依赖,后台跑完 wait ----
+# (实测 1920 全链 12.4s:合成 7.9 其中 motion-blur 占 6.9;摩尔 3.0;畸变 1.1)
+
+# 手抖拖影:方向性 motion blur,角度缺省每次随机(哪次手抖方向都不一样)。
+# 卷积是最大单点开销 → 拖影层仍在 50% 分辨率做;但旧版直接替换整图,resize 往返
+# 自带 ~24% 对比度柔化,弱拖影全被盖住 → 看着像失焦。改成叠层法:清晰主像上按比
+# 叠方向性拖影层(blend α 随强度走),弱拖影呈"主像+方向鬼影"——更像真手抖,
+# 强拖影(α→92%)自然接近全卷积。
+MOTION_ARGS=()
+if awk -v m="$MOTION" 'BEGIN{ exit !(m>=0.5) }'; then
+  [[ -z $MOTION_ANGLE ]] && MOTION_ANGLE=$((RANDOM % 180))
+  MOTION_SIG=$(awk -v m="$MOTION" -v s="$S" 'BEGIN{ printf "%.1f", m*s/4 }')
+  MOTION_MIX=$(awk -v m="$MOTION" -v s="$S" 'BEGIN{ a=55+m*s*4; if(a>92)a=92; printf "%d", a }')
+  MOTION_ARGS=( \( -clone 0 -resize 50% -motion-blur "0x${MOTION_SIG}+${MOTION_ANGLE}" \
+    -resize ${TW}x${TH}\! \) -compose blend -define compose:args=$MOTION_MIX -composite )
+fi
+
+# ---- 1. 摩尔层:传感器采样模型(不是贴纹理) ----
+# 物理:屏幕发的是 R|G|B 子像素竖条,投影间距随拍摄距离/角度变;传感器按固定栅格
+# 采样,只有间距与栅格近整数比的局部位置拍出摩尔带——所以真摩尔纹是"一处"的,
+# 不是满屏。实现:RGB 竖条画在 2x 画布(采样周期=2px),间距设成沿 x 线性渐变,
+# 只在 XR 附近恰好≈2(共振):那儿出宽拍带+大片着色区,两侧间距偏离后拍频变快、
+# 模糊融成底噪。XR 随机落点(keystone 偏压远侧),可能落出画面 → 那张几乎无纹。
+# 彩虹不用染:采到哪个子像素就是哪个色(等效 Bayer 相位差);hardlight 乘性调制,
+# 暗区不出纹。条栅随 rotate 倾斜(跟屏幕一起 roll),逐线微摆模拟镜头不平行。
+XR=$(awk -v k="$KEYSTONE" -v r=$RANDOM 'BEGIN{ srand(r); printf "%.2f", 0.5 - k*0.05 + (rand()-0.5)*0.8 }')
+YR=$(awk -v r=$RANDOM 'BEGIN{ srand(r); printf "%.2f", 0.5 + (rand()-0.5)*0.5 }')
+CHIRP=$(awk -v k="$KEYSTONE" -v r=$RANDOM 'BEGIN{ srand(r); if(k<0)k=-k; printf "%.4f", 0.15 + k*0.03 + rand()*0.2 }')
+BANG=$(awk -v r="$ROTATE" -v rr=$RANDOM 'BEGIN{ srand(rr); printf "%.2f", -r + (rand()-0.5)*3 }')
+MOIRE_BLUR=$(awk -v s="$S" -v mw="$MW" -v w="$TW" 'BEGIN{ printf "%.2f", 1.0*s*mw/w }')
+MOIRE_SW=1.6                                                  # 子像素占空(共振区条距≈2px)
+ESIG=$(awk -v r=$RANDOM 'BEGIN{ srand(r); printf "%.1f", 8 + rand()*6 }')   # 包络斑点 σ(64x36 标尺)
+EPX=$(awk -v x="$XR" 'BEGIN{ printf "%d", x*64 }')
+EPY=$(awk -v y="$YR" 'BEGIN{ printf "%d", y*36 }')
+# 竖条:R|G|B 三色轮换,间距沿 x 线性渐变、在 XR 处过共振(≈采样周期2px)
+awk -v W=$M2W -v H=$M2H -v A=$BANG -v X="$XR" -v C="$CHIRP" -v SW="$MOIRE_SW" -v PH=$((RANDOM % 628)) 'BEGIN{
+  split("#ff2020 #20ff20 #3050ff", col, " ")   # 子像素原色
+  printf "stroke-width %f\n", SW
+  i=0; x=-W*0.2
+  while(x<W*1.2){
+    lp = 2 + C*(x/W - X)                      # 局部间距:XR 处=2(共振),两侧偏离
+    a  = A + 0.8*sin(x*5.0/W + PH)            # 逐线角度缓摆
+    dx = H*sin(a*3.14159/180)
+    printf "stroke %s\nline %f,0 %f,%d\n", col[i%3+1], x, x+dx, H
+    x += lp; i++
+  }}' >"$TMP/moire.mvg"
+# 像素行线:淡色,间距≈1.5输出px,同角度 roll —— 给摩尔加点竖向结构
+awk -v W=$M2W -v H=$M2H -v A=$BANG -v PH=$((RANDOM % 628)) 'BEGIN{
+  print "stroke-width 0.7"
+  y=-H*0.2
+  while(y<H*1.2){
+    a  = A + 0.8*sin(y*4.0/H + PH)
+    dx = W*sin(a*3.14159/180)
+    printf "stroke rgba(30,30,30,0.3)\nline 0,%f %d,%f\n", y, W, y+dx
+    y += 3.1
+  }}' >>"$TMP/moire.mvg"
+# 采样后逐通道均值归一到 0.5(吃掉条栅占空比的偏色),乘上包络场把纹局域到一块
+# (m' = 0.5+(m-0.5)·env = m·env + 0.5(1-env)),再按 MOIRE 强度压幅度
+# → 交给 hardlight 复合:摩尔是乘性调制,暗区不出纹(物理),文字带 demosaic 彩边
+ML=$(awk -v m="$MOIRE" 'BEGIN{ printf "%.1f", 50 - m*0.9 }')
+MH2=$(awk -v m="$MOIRE" 'BEGIN{ printf "%.1f", 50 + m*0.9 }')
+(
+  magick -size ${M2W}x${M2H} xc:"#909090" +antialias \
+    -draw "@$TMP/moire.mvg" \
+    -filter point -resize ${MW}x${MH}\! \
+    -blur 0x$MOIRE_BLUR "$TMP/mraw.png"
+  # 包络:64x36 场里一个模糊点 → 椭圆亮斑,auto-level 拉满峰=1;点落场外=几乎无纹
+  magick -size 64x36 xc:black -fill white -draw "point $EPX,$EPY" -blur 0x$ESIG -auto-level \
+    -resize ${MW}x${MH}\! "$TMP/menv.png"
+  R=$(magick "$TMP/mraw.png" -channel R -format "%[fx:mean]" info:)
+  G=$(magick "$TMP/mraw.png" -channel G -format "%[fx:mean]" info:)
+  B=$(magick "$TMP/mraw.png" -channel B -format "%[fx:mean]" info:)
+  magick "$TMP/mraw.png" \
+    -channel R -evaluate multiply "$(awk -v m=$R 'BEGIN{printf "%.4f",0.5/m}')" \
+    -channel G -evaluate multiply "$(awk -v m=$G 'BEGIN{printf "%.4f",0.5/m}')" \
+    -channel B -evaluate multiply "$(awk -v m=$B 'BEGIN{printf "%.4f",0.5/m}')" +channel \
+    "$TMP/menv.png" -compose multiply -composite \
+    \( "$TMP/menv.png" -negate -evaluate multiply 0.5 \) -compose plus -composite \
+    +level ${ML}%,${MH2}% \
+    -filter point -resize ${TW}x${TH}\! "$TMP/moire.png"
+) &
+
+# ---- 2. LCD亚像素光栅(RGB竖条) ----
+GRILLE_P=$(awk -v s="$S" 'BEGIN{ p=int(3*s+0.5); if(p<3)p=3; print p }')
+magick -size 1x1 xc:red xc:lime xc:blue +append -scale ${GRILLE_P}x1\! "$TMP/grille-tile.png"
+magick -size ${TW}x${TH} tile:"$TMP/grille-tile.png" -alpha set -channel A \
+  -evaluate multiply "$GRILLE" +channel "$TMP/grille.png" &
+
+# ---- 3. 扫描线mask ----
+# 小 tile 用 tile: 平铺成周期条纹;旧实现 -scale 拉伸,整个成了"下半屏压暗"的遮罩
+SCAN_P=$(awk -v s="$S" 'BEGIN{ p=int(4*s+0.5); if(p<4)p=4; print p }')
+magick -size 1x${SCAN_P} xc:black -fill white -draw "rectangle 0,0 0,$((SCAN_P/2 - 1))" "$TMP/scantile.png"
+magick -size ${TW}x${TH} tile:"$TMP/scantile.png" -blur 0x0.4 \
+  -alpha set -channel A -evaluate multiply "$SCAN" +channel "$TMP/scanmask.png" &
+
+# ---- 4. 快门横带+对角反光,合并成一张灰度 amap ----
+# 两者都是 "screen 亮色" 类提亮:out = w + A(1-w),screen 满足结合律 →
+# 合并层 A = screen(α·横带blob, 0.06·对角渐变),主合成只跑一次 screen。
+# 横带 α 随机 3-8% 且可整体落出画面:卷帘快门带在真机上很淡、常根本没有。
+# 横带仍是 1/4 小画布画完放大(σ90 级大模糊 8s→0s)。
+BAND_Y=$((-TH / 5 + RANDOM % (TH + TH / 5)))   # 带可部分落出画面
+BAND_H=$((TH / 5))
+BAND_A=$(awk -v r=$RANDOM 'BEGIN{ srand(r); printf "%.3f", 0.03 + rand()*0.05 }')
+(( RANDOM % 4 == 0 )) && BAND_A=0              # 1/4 概率整条没有(真机多数拍不到)
+BS_W=$((TW / 4)); BS_H=$((TH / 4))
+magick \
+  \( -size ${BS_W}x${BS_H} xc:black -fill white \
+     -draw "roundrectangle 0,$((BAND_Y/4)) $BS_W,$(((BAND_Y+BAND_H)/4)) 0,0" \
+     -blur 0x$((BAND_H / 8)) -resize ${TW}x${TH}\! -evaluate multiply "$BAND_A" \) \
+  \( -size ${TW}x${TH} gradient:white-black -virtual-pixel edge -distort SRT 30 +repage \
+     -evaluate multiply 0.06 \) \
+  -compose screen -composite "$TMP/amap.png" &
+
+# ---- 畸变链:透视→旋转一条命令,裁到预算内接矩形,与纹理并行 ----
+# 侧视:水平 yaw,近侧边缘拉高、远侧压缩+内收。正=从右侧拍,负=从左侧拍。
+# 旋转:面内 roll,正=逆时针(跟 QML rotation 反号)。先透视后旋转=真实成像顺序。
+WORK="$IN"
+DISTORT_ARGS=()
+if (( KACTIVE )); then
+  MAP=$(awk -v W="$W" -v H="$H" -v d="$KEYSTONE" 'BEGIN{
+    a = H*0.01*d; c = W*0.004*d
+    printf "0,0 %g,%g %d,0 %d,%g 0,%d %g,%g %d,%d %d,%g", c, a, W, W, -a, H, c, H-a, W, H, W, H+a }')
+  DISTORT_ARGS+=(-background black -distort Perspective "$MAP" +repage
+    -crop "${KW}x${KH}+${KX}+${KY}" +repage)
+fi
+if (( RACTIVE )); then
+  ANG=$(awk -v r="$ROTATE" 'BEGIN{ printf "%.2f", r }')
+  DISTORT_ARGS+=(-distort SRT "$ANG" +repage -gravity center -crop "${RW}x${RH}+0+0" +repage)
+fi
+if ((${#DISTORT_ARGS[@]})); then
+  WORK="$TMP/work.png"
+  magick "$IN" "${DISTORT_ARGS[@]}" "$WORK" &
+fi
+
+# wait 不带参数恒返回 0(不管子任务成败),只能显式验产物
+wait
+for f in "$WORK" "$TMP/moire.png" "$TMP/grille.png" "$TMP/scanmask.png" "$TMP/amap.png"; do
+  [[ -s $f ]] || { echo "stage-one artifact missing: $f" >&2; exit 1; }
+done
+
+# ---- 阶段二:主合成(单命令,全内存不落地) ----
+CHROMA_S=$(awk -v c="$CHROMA" -v s="$S" 'BEGIN{ p=int(c*s+0.5); if(p<1)p=1; print p }')
+
+magick "$WORK" \
+  "$TMP/moire.png" -compose hardlight -composite \
+  "$TMP/grille.png" -compose softlight -composite \
+  "$TMP/scanmask.png" -compose multiply -composite \
+  -channel R -roll +${CHROMA_S}+0 +channel -channel B -roll -${CHROMA_S}+0 +channel \
+  -blur "$BLUR" "${MOTION_ARGS[@]}" -modulate "101,${SAT}" \
+  "$TMP/amap.png" -compose screen -composite \
+  -attenuate "$NOISE" +noise Gaussian \
+  -quality "$QUALITY" "$OUT"
