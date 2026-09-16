@@ -17,21 +17,24 @@
 
 ```bash
 omarchy plugin add https://github.com/Duro02/omarchy-phoneshot --enable
-~/.config/omarchy/plugins/duro.phoneshot/install.sh
 ```
 
-`omarchy plugin add` 会把本仓库 clone 到 `~/.config/omarchy/plugins/duro.phoneshot/`
-（仓库根就是合法插件：`manifest.json` + `BarWidget.qml`)。
-`install.sh` 再把渲染脚本软链到 `~/.local/bin/`，并往
-`~/.config/hypr/bindings.lua` 追加快捷键：
+装完即用——栏图标、参数面板、预览都直接能用。仓库根就是合法插件
+（`manifest.json` + `BarWidget.qml`),`plugin add` 会把整仓 clone 到
+`~/.config/omarchy/plugins/duro.phoneshot/`；面板直接调插件目录里的脚本，
+不需要 PATH 配置。
+
+要接管 `PRINT` 的话，往 `~/.config/hypr/bindings.lua` 加两行
+（自己贴，或跑 `~/.config/omarchy/plugins/duro.phoneshot/install.sh`，
+然后 `hyprctl reload`):
 
 ```lua
 hl.unbind("PRINT")
-o.bind("PRINT", "Screenshot", "omarchy-phoneshot-screenshot")
-o.bind("SUPER + SHIFT + PRINT", "Toggle phoneshot", "omarchy-phoneshot-toggle")
+o.bind("PRINT", "Screenshot", "$HOME/.config/omarchy/plugins/duro.phoneshot/bin/omarchy-phoneshot-screenshot")
+o.bind("SUPER + SHIFT + PRINT", "Toggle phoneshot", "$HOME/.config/omarchy/plugins/duro.phoneshot/bin/omarchy-phoneshot-toggle")
 ```
 
-以后更新用 `omarchy plugin update duro.phoneshot`(bin/ 软链跟着 checkout 走）。
+以后更新用 `omarchy plugin update duro.phoneshot`。
 
 ## 用法
 
@@ -40,7 +43,7 @@ o.bind("SUPER + SHIFT + PRINT", "Toggle phoneshot", "omarchy-phoneshot-toggle")
 | `PRINT` | 截图（做旧与否看开关） |
 | `SUPER + SHIFT + PRINT` | 开 / 关拍屏模式（通知提示） |
 | `PHONESHOT_LEVEL=hard omarchy-phoneshot-screenshot` | 单次重度做旧 |
-| `omarchy-phoneshot-apply in.png out.jpg` | 只跑滤镜 |
+| `omarchy-phoneshot-apply in.png out.jpg` | 只跑滤镜（脚本在插件目录 `bin/` 里；install.sh 会软链进 `~/.local/bin` 方便命令行调用） |
 
 开关状态存在 `~/.config/omarchy/phoneshot-mode`(`on`/`off`)。
 强度档位 `PHONESHOT_LEVEL`:`mild` / `mid`（默认）/ `hard`。

@@ -1,11 +1,11 @@
 #!/bin/bash
-# Phoneshot install: symlink bin/ into ~/.local/bin + hijack the PRINT keybind.
-# 安装: 软链 bin 到 ~/.local/bin + 接管 PRINT 快捷键。
+# Phoneshot install: hijack the PRINT keybind (+ optional ~/.local/bin symlinks).
+# 安装: 接管 PRINT 快捷键(+可选的 ~/.local/bin 软链,方便命令行调用)。
 #
-# 两种用法:
-#   omarchy plugin add <repo-url> --enable   # 插件进 ~/.config/omarchy/plugins/
-#   ~/.config/omarchy/plugins/duro.phoneshot/install.sh   # 再跑本脚本接管按键
-# 开发仓库里直接跑本脚本: 顺带把 manifest/QML 拷到插件目录。
+# 面板/预览不依赖软链:脚本一律走插件目录内绝对路径。
+# plugin add 之后唯一要做的就是 bindings.lua 里的两行绑定(插件装的时候
+# 不可能自动改 Hyprland 配置)——跑本脚本,或手动把 bindings-snippet.lua
+# 两行贴进 ~/.config/hypr/bindings.lua。
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -19,13 +19,15 @@ echo "linked: $(ls ~/.local/bin/omarchy-phoneshot-*)"
 
 # 插件部署(幂等):manifest.json 在仓库根,仓库本身即插件。
 # 已在插件目录里(plugin add clone 进来的)原地运行则跳过拷贝;
-# 开发仓库里跑则拷过去。改完 QML 需 omarchy restart shell 才生效。
+# 开发仓库里跑则拷过去——连 bin/ 一起拷,面板调脚本走插件目录路径,
+# 不依赖 ~/.local/bin。改完 QML 需 omarchy restart shell 才生效。
 PLUGIN_TARGET="$HOME/.config/omarchy/plugins/duro.phoneshot"
 if [[ $(realpath "$PWD") == $(realpath -m "$PLUGIN_TARGET") ]]; then
   echo "in-place install at $PLUGIN_TARGET, plugin files already there"
 else
   mkdir -p "$PLUGIN_TARGET"
   cp -f manifest.json BarWidget.qml "$PLUGIN_TARGET"/
+  cp -rf bin "$PLUGIN_TARGET"/
   [[ -f $PLUGIN_TARGET/sample.png ]] || cp sample.png "$PLUGIN_TARGET"/
   echo "plugin deployed: $PLUGIN_TARGET/"
 fi

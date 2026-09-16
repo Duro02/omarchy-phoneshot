@@ -15,21 +15,24 @@ Turn a crisp screenshot into a convincing "phone photographing a screen" image â
 
 ```bash
 omarchy plugin add https://github.com/Duro02/omarchy-phoneshot --enable
-~/.config/omarchy/plugins/duro.phoneshot/install.sh
 ```
 
-`omarchy plugin add` clones this repo into `~/.config/omarchy/plugins/duro.phoneshot/`
-(the repo root is a valid plugin: `manifest.json` + `BarWidget.qml`).
-`install.sh` then symlinks the renderer scripts into `~/.local/bin/` and appends the
-keybinds to `~/.config/hypr/bindings.lua`:
+Done â€” the bar icon, panel, and preview all work right away. The repo root is a
+valid plugin (`manifest.json` + `BarWidget.qml`), so `plugin add` clones the whole
+thing into `~/.config/omarchy/plugins/duro.phoneshot/`; the panel calls the
+renderer scripts inside the plugin dir, no PATH setup needed.
+
+To also take over `PRINT`, add two lines to `~/.config/hypr/bindings.lua`
+(either paste them yourself or run `~/.config/omarchy/plugins/duro.phoneshot/install.sh`,
+then `hyprctl reload`):
 
 ```lua
 hl.unbind("PRINT")
-o.bind("PRINT", "Screenshot", "omarchy-phoneshot-screenshot")
-o.bind("SUPER + SHIFT + PRINT", "Toggle phoneshot", "omarchy-phoneshot-toggle")
+o.bind("PRINT", "Screenshot", "$HOME/.config/omarchy/plugins/duro.phoneshot/bin/omarchy-phoneshot-screenshot")
+o.bind("SUPER + SHIFT + PRINT", "Toggle phoneshot", "$HOME/.config/omarchy/plugins/duro.phoneshot/bin/omarchy-phoneshot-toggle")
 ```
 
-Update later with `omarchy plugin update duro.phoneshot` (bin/ symlinks follow the checkout).
+Update later with `omarchy plugin update duro.phoneshot`.
 
 ## Usage
 
@@ -38,7 +41,7 @@ Update later with `omarchy plugin update duro.phoneshot` (bin/ symlinks follow t
 | `PRINT` | Screenshot (styled or not, per the toggle) |
 | `SUPER + SHIFT + PRINT` | Toggle phoneshot mode (notification confirms) |
 | `PHONESHOT_LEVEL=hard omarchy-phoneshot-screenshot` | One-off heavy styling |
-| `omarchy-phoneshot-apply in.png out.jpg` | Run the filter standalone |
+| `omarchy-phoneshot-apply in.png out.jpg` | Run the filter standalone (scripts live in the plugin dir's `bin/`; install.sh symlinks them into `~/.local/bin` for PATH use) |
 
 Toggle state lives in `~/.config/omarchy/phoneshot-mode` (`on`/`off`).
 Intensity preset: `PHONESHOT_LEVEL` = `mild` / `mid` (default) / `hard`.

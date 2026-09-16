@@ -61,7 +61,7 @@ BarWidget {
   }
   Process {
     id: toggleProc
-    command: [Quickshell.env("HOME") + "/.local/bin/omarchy-phoneshot-toggle"]
+    command: [root.phoneshotBin + "omarchy-phoneshot-toggle"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: { root.enabledState = (String(text).trim() === "on") }
@@ -70,7 +70,9 @@ BarWidget {
 
 
 
-  readonly property string phoneshotBin: Quickshell.env("HOME") + "/.local/bin/"
+  // 脚本在插件目录里(plugin add 的 clone / 开发仓库软链部署都行),
+  // 不依赖 ~/.local/bin 软链。
+  readonly property string phoneshotBin: Qt.resolvedUrl("bin/").toString().replace(/^file:\/\//, "")
 
   // 拖动中调这个:只更新属性+脏标记,不启动任何渲染,拖动中图纹丝不动。
   // 渲染只在松手时启动( settled → applyNow 立刻执行)。
