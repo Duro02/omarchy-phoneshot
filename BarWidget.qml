@@ -47,6 +47,27 @@ BarWidget {
   // 脏标记:值已进属性,applyNow 一次写全五个键,不丢键
   property bool pendingDirty: false
 
+  // 拍屏开关状态(~/.config/omarchy/phoneshot-mode)。FileView 监听文件:
+  // 快捷键在外面切了模式,这里马上跟着变,不只在面板打开时对齐。
+  property bool enabledState: false
+  FileView {
+    id: modeFile
+    path: Quickshell.env("HOME") + "/.config/omarchy/phoneshot-mode"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: modeFile.reload()
+    onLoaded: root.enabledState = (modeFile.text().trim() === "on")
+    onLoadFailed: root.enabledState = false
+  }
+  Process {
+    id: toggleProc
+    command: [Quickshell.env("HOME") + "/.local/bin/omarchy-phoneshot-toggle"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: { root.enabledState = (String(text).trim() === "on") }
+    }
+  }
+
 
 
   readonly property string phoneshotBin: Quickshell.env("HOME") + "/.local/bin/"
@@ -200,21 +221,59 @@ BarWidget {
       spacing: Style.space(16)
 
       // ---------- 左:参数 ----------
-      Column {
+      Item {
         id: paramColumn
         width: Style.space(240)
-        spacing: Style.space(10)
-
-        PanelSectionHeader {
-          text: root.tr("参数", "Parameters")
-          foreground: root.bar.foreground
-          fontFamily: root.bar.fontFamily
-        }
+        height: parent.height
 
         Column {
-          id: paramRows
+          id: topCol
           width: parent.width
-          spacing: Style.space(8)
+          spacing: Style.space(10)
+
+          // 拍屏总开关:左文字右裸开关,只有开关可点(Toggle 组件整行吃点击,不用它)。
+          // busy 吞掉重复点击,状态以 phoneshot-mode 文件为准(FileView 监听)。
+          Row {
+            width: parent.width
+            height: modeSwitch.implicitHeight
+
+            Column {
+              width: parent.width - modeSwitch.width
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.spacing.xs
+              Text {
+                text: root.tr("拍屏模式", "Phoneshot")
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.subtitle
+              }
+              Text {
+                text: root.tr("PRINT 截图做旧", "Style PRINT screenshots")
+                color: Qt.darker(root.bar.foreground, 1.3)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+            ToggleSwitch {
+              id: modeSwitch
+              anchors.verticalCenter: parent.verticalCenter
+              checked: root.enabledState
+              busy: toggleProc.running
+              foreground: root.bar.foreground
+              onToggled: { if (!toggleProc.running) toggleProc.running = true }
+            }
+          }
+
+          PanelSectionHeader {
+            text: root.tr("参数", "Parameters")
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+          }
+
+          Column {
+            id: paramRows
+            width: parent.width
+            spacing: Style.space(8)
 
           SliderRow {
             label: root.tr("旋转(−顺/+逆)", "Roll (−cw/+ccw)")
@@ -251,32 +310,42 @@ BarWidget {
             onDragged: function(v) { root.scheduleApply("MOTION_ANGLE", Math.round(v)) }
             onSettled: function(v) { root.scheduleApply("MOTION_ANGLE", Math.round(v)); root.applyNow() }
           }
+          }
         }
 
         // 随机一组拍摄参数:侧视/失焦/拖影用三角分布偏小幅值,更像真拍;
         // 写参数文件+重渲染,预览所见即 PRINT 所得。
-        Button {
+        // 在滑块下方剩余空间里居中:上间距 = 下间距。
+        Item {
+          anchors.top: topCol.bottom
+          anchors.bottom: parent.bottom
           width: parent.width
-          bordered: true
-          text: root.tr("随机一组参数", "Randomize parameters")
-          foreground: root.bar.foreground
-          fontFamily: root.bar.fontFamily
-          fontSize: Style.font.bodySmall
-          onClicked: {
-            root.rotateVal = Math.round((Math.random() * 2 - 1) * 5 * 2) / 2
-            var k = Math.random() + Math.random() - 1            // 三角分布 [-1,1]
-            root.keystoneVal = Math.round(k * 12 * 2) / 2
-            root.defocusVal = Math.round(Math.random() * Math.random() * 2 * 10) / 10
-            root.motionVal = Math.round(Math.random() * Math.random() * 8 * 2) / 2
-            root.motionAngleVal = Math.round(Math.random() * 36) * 5
-            root.pendingDirty = true
-            root.applyNow()
+
+          Button {
+            width: parent.width
+            anchors.centerIn: parent
+            bordered: true
+            text: root.tr("随机一组参数", "Randomize parameters")
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: {
+              root.rotateVal = Math.round((Math.random() * 2 - 1) * 5 * 2) / 2
+              var k = Math.random() + Math.random() - 1            // 三角分布 [-1,1]
+              root.keystoneVal = Math.round(k * 12 * 2) / 2
+              root.defocusVal = Math.round(Math.random() * Math.random() * 2 * 10) / 10
+              root.motionVal = Math.round(Math.random() * Math.random() * 8 * 2) / 2
+              root.motionAngleVal = Math.round(Math.random() * 36) * 5
+              root.pendingDirty = true
+              root.applyNow()
+            }
           }
         }
       }
 
       // ---------- 右:预览 ----------
       Column {
+        id: previewCol
         width: parent.width - paramColumn.width - parent.spacing
         spacing: Style.space(8)
 
@@ -312,6 +381,7 @@ BarWidget {
         }
 
         Text {
+          id: statusText
           width: parent.width
           wrapMode: Text.WordWrap
           text: (setProc.running ? root.tr("渲染中…", "Rendering…") : "R" + root.rotateVal + " K" + root.keystoneVal + " D" + root.defocusVal + " M" + root.motionVal + "@" + root.motionAngleVal + " · " + root.tr("上次渲染效果,拖动更新", "last render, drag to update"))

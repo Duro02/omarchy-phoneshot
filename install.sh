@@ -1,6 +1,11 @@
 #!/bin/bash
-# 安装 Phoneshot 插件: 软链 bin 到 ~/.local/bin + 接管 PRINT 快捷键
-# Install: symlink bin/ into ~/.local/bin + hijack the PRINT keybind.
+# Phoneshot install: symlink bin/ into ~/.local/bin + hijack the PRINT keybind.
+# 安装: 软链 bin 到 ~/.local/bin + 接管 PRINT 快捷键。
+#
+# 两种用法:
+#   omarchy plugin add <repo-url> --enable   # 插件进 ~/.config/omarchy/plugins/
+#   ~/.config/omarchy/plugins/duro.phoneshot/install.sh   # 再跑本脚本接管按键
+# 开发仓库里直接跑本脚本: 顺带把 manifest/QML 拷到插件目录。
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -12,53 +17,21 @@ for f in bin/*; do
 done
 echo "linked: $(ls ~/.local/bin/omarchy-phoneshot-*)"
 
-# ---- 旧名迁移 (paiping -> phoneshot,2026-09 改名) ----
-# 旧软链
-for old in "$HOME"/.local/bin/omarchy-paiping-*; do
-  [[ -L $old ]] && rm -f "$old" && echo "removed old link: $old"
-done
-# 旧配置:只在新文件不存在时搬,不覆盖
-for k in mode params output; do
-  old="$HOME/.config/omarchy/paiping-$k"; new="$HOME/.config/omarchy/phoneshot-$k"
-  if [[ -f $old && ! -f $new ]]; then
-    mv "$old" "$new" && echo "migrated: paiping-$k -> phoneshot-$k"
-  fi
-done
-# 输出配置里的值名 clipboard=paiping 也改了
-if [[ -f $HOME/.config/omarchy/phoneshot-output ]]; then
-  sed -i 's/^\(clipboard[[:space:]]*=[[:space:]]*\)paiping/\1phoneshot/' \
-    "$HOME/.config/omarchy/phoneshot-output"
+# 插件部署(幂等):manifest.json 在仓库根,仓库本身即插件。
+# 已在插件目录里(plugin add clone 进来的)原地运行则跳过拷贝;
+# 开发仓库里跑则拷过去。改完 QML 需 omarchy restart shell 才生效。
+PLUGIN_TARGET="$HOME/.config/omarchy/plugins/duro.phoneshot"
+if [[ $(realpath "$PWD") == $(realpath -m "$PLUGIN_TARGET") ]]; then
+  echo "in-place install at $PLUGIN_TARGET, plugin files already there"
+else
+  mkdir -p "$PLUGIN_TARGET"
+  cp -f manifest.json BarWidget.qml "$PLUGIN_TARGET"/
+  [[ -f $PLUGIN_TARGET/sample.png ]] || cp sample.png "$PLUGIN_TARGET"/
+  echo "plugin deployed: $PLUGIN_TARGET/"
 fi
-# 旧预览缓存
-if [[ -d $HOME/.cache/paiping && ! -d $HOME/.cache/phoneshot ]]; then
-  mv "$HOME/.cache/paiping" "$HOME/.cache/phoneshot" && echo "migrated: cache dir"
-fi
-# 旧插件目录:确认 manifest id 后删除(内容是本仓库旧拷贝,git 里可恢复;
-# 留着会和新插件并存,栏上出两个图标)
-if grep -q '"id": "duro.paiping"' \
-    "$HOME/.config/omarchy/plugins/duro.paiping/manifest.json" 2>/dev/null; then
-  rm -rf "$HOME/.config/omarchy/plugins/duro.paiping"
-  echo "removed old plugin dir: duro.paiping"
-fi
-# bindings.lua 里的旧命令名
-BINDINGS=~/.config/hypr/bindings.lua
-if grep -q "omarchy-paiping-" "$BINDINGS" 2>/dev/null; then
-  cp "$BINDINGS" "$BINDINGS.bak.$(date +%s)"
-  sed -i 's/omarchy-paiping-/omarchy-phoneshot-/g; s/Toggle paiping/Toggle phoneshot/' "$BINDINGS"
-  echo "bindings.lua: paiping -> phoneshot (backup saved)"
-fi
-
-# 插件部署(幂等):仓库源码 -> shell 插件目录。改完 QML 跑一遍 install.sh,
-# 再 omarchy restart shell (注意:shell 的插件热重载不会刷新已显示的挂件,
-# 必须重启 shell,已用图标字形变化实证)。sample.png 只在缺失时放。
-mkdir -p ~/.config/omarchy/plugins/duro.phoneshot
-cp -f plugins/duro.phoneshot/manifest.json plugins/duro.phoneshot/BarWidget.qml \
-  ~/.config/omarchy/plugins/duro.phoneshot/
-[[ -f ~/.config/omarchy/plugins/duro.phoneshot/sample.png ]] || \
-  cp plugins/duro.phoneshot/sample.png ~/.config/omarchy/plugins/duro.phoneshot/
-echo "plugin deployed: ~/.config/omarchy/plugins/duro.phoneshot/"
 
 # 快捷键接管(幂等:已存在则跳过)
+BINDINGS=~/.config/hypr/bindings.lua
 MARKER="omarchy-phoneshot-screenshot"
 if grep -q "$MARKER" "$BINDINGS"; then
   echo "bindings.lua already patched, skipped"

@@ -15,6 +15,7 @@
     "displayName": "Phoneshot",
     "description": "Phoneshot parameter panel",
     "category": "Utilities",
+    "defaultSection": "right",
     "allowMultiple": false
   }
 }
