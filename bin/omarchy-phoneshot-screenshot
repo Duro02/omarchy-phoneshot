@@ -12,8 +12,9 @@ MODE_FILE="$HOME/.config/omarchy/phoneshot-mode"
 MODE="off"
 [[ -f $MODE_FILE ]] && MODE="$(cat "$MODE_FILE")"
 
-# 关着就别碰原生行为,直接透传(以后原生升级也不用跟着改)
-if [[ $MODE != "on" ]]; then
+# 关着就别碰原生行为,直接透传(以后原生升级也不用跟着改)。
+# PHONESHOT_FORCE=1 跳过开关判断——面板里的拍摄按钮走这条路,不看 mode。
+if [[ ${PHONESHOT_FORCE:-0} != "1" && $MODE != "on" ]]; then
   exec omarchy-capture-screenshot "$@"
 fi
 

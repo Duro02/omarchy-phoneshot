@@ -75,6 +75,17 @@ silentMoire 的"叠细网格再重采样"思路。
   改叠层法:清晰主像 + 方向性鬼影(α=55+m·s·4,上限 92%)。
 - grille `-scale ${GRILLE_P}x1` 不带 `!` 保宽高比,间距缩放从未生效,补 `!`。
 
+## 交互模型:面板按钮拍屏,不接管 PRINT (2026-09-16)
+
+最初设计是接管 PRINT(wrapper 按 mode 透传/做旧),后来改成面板动作:
+插件 add 完即用,零按键绑定、零 PATH 依赖——点 📱 → 收面板 →
+`PHONESHOT_FORCE=1 omarchy-phoneshot-screenshot` 选区做旧。
+
+原因:`omarchy plugin add` 只是 clone,不可能替用户改 Hyprland 绑定;
+绑定还要清理卸载残留(删插件后 PRINT 指到已删脚本会彻底失灵)。
+面板动作模型下 mode/开关行失去意义,从面板移除;`screenshot` 脚本保留
+mode 检查,可选接管路径仍留给想绑键的人(bindings-snippet.lua)。
+
 ## 杂项
 
 - 参数钳制:ROTATE±45 / KEYSTONE±30 / DEFOCUS 0–5 / MOTION 0–30,

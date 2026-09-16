@@ -47,25 +47,11 @@ BarWidget {
   // 脏标记:值已进属性,applyNow 一次写全五个键,不丢键
   property bool pendingDirty: false
 
-  // 拍屏开关状态(~/.config/omarchy/phoneshot-mode)。FileView 监听文件:
-  // 快捷键在外面切了模式,这里马上跟着变,不只在面板打开时对齐。
-  property bool enabledState: false
-  FileView {
-    id: modeFile
-    path: Quickshell.env("HOME") + "/.config/omarchy/phoneshot-mode"
-    watchChanges: true
-    printErrors: false
-    onFileChanged: modeFile.reload()
-    onLoaded: root.enabledState = (modeFile.text().trim() === "on")
-    onLoadFailed: root.enabledState = false
-  }
+  // 拍摄:收起面板后跑 screenshot 脚本,PHONESHOT_FORCE 跳过 mode 开关——
+  // 面板点拍就是要做旧,跟 PRINT 绑定无关(不接管按键,原生 PRINT 不受影响)。
   Process {
-    id: toggleProc
-    command: [root.phoneshotBin + "omarchy-phoneshot-toggle"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: { root.enabledState = (String(text).trim() === "on") }
-    }
+    id: shotProc
+    command: ["env", "PHONESHOT_FORCE=1", root.phoneshotBin + "omarchy-phoneshot-screenshot"]
   }
 
 
@@ -233,36 +219,18 @@ BarWidget {
           width: parent.width
           spacing: Style.space(10)
 
-          // 拍屏总开关:左文字右裸开关,只有开关可点(Toggle 组件整行吃点击,不用它)。
-          // busy 吞掉重复点击,状态以 phoneshot-mode 文件为准(FileView 监听)。
-          Row {
+          // 拍摄键:收起面板 -> 选区截图 -> 做旧,全流程在插件目录脚本里,
+          // 不接管 PRINT。shotProc 有 stdout 无收集会警告,无妨。
+          Button {
             width: parent.width
-            height: modeSwitch.implicitHeight
-
-            Column {
-              width: parent.width - modeSwitch.width
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.spacing.xs
-              Text {
-                text: root.tr("拍屏模式", "Phoneshot")
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.subtitle
-              }
-              Text {
-                text: root.tr("PRINT 截图做旧", "Style PRINT screenshots")
-                color: Qt.darker(root.bar.foreground, 1.3)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.caption
-              }
-            }
-            ToggleSwitch {
-              id: modeSwitch
-              anchors.verticalCenter: parent.verticalCenter
-              checked: root.enabledState
-              busy: toggleProc.running
-              foreground: root.bar.foreground
-              onToggled: { if (!toggleProc.running) toggleProc.running = true }
+            bordered: true
+            iconText: "󰄛"
+            text: root.tr("拍屏截图", "Take a phoneshot")
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.popupOpen = false
+              if (!shotProc.running) shotProc.running = true
             }
           }
 
@@ -316,7 +284,7 @@ BarWidget {
         }
 
         // 随机一组拍摄参数:侧视/失焦/拖影用三角分布偏小幅值,更像真拍;
-        // 写参数文件+重渲染,预览所见即 PRINT 所得。
+        // 写参数文件+重渲染,预览所见即所得。
         // 在滑块下方剩余空间里居中:上间距 = 下间距。
         Item {
           anchors.top: topCol.bottom

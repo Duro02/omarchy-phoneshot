@@ -1,11 +1,12 @@
 #!/bin/bash
-# Phoneshot install: hijack the PRINT keybind (+ optional ~/.local/bin symlinks).
-# 安装: 接管 PRINT 快捷键(+可选的 ~/.local/bin 软链,方便命令行调用)。
+# Phoneshot setup (all optional): ~/.local/bin symlinks for CLI use,
+# dev-checkout deploy to the plugin dir, phoneshot-lang default.
+# 便利安装(全部可选): ~/.local/bin 软链 + 开发仓库部署到插件目录 +
+# 界面语言默认值。不改任何按键绑定——PRINT 保持原生,拍屏走面板 📱 按钮。
 #
 # 面板/预览不依赖软链:脚本一律走插件目录内绝对路径。
-# plugin add 之后唯一要做的就是 bindings.lua 里的两行绑定(插件装的时候
-# 不可能自动改 Hyprland 配置)——跑本脚本,或手动把 bindings-snippet.lua
-# 两行贴进 ~/.config/hypr/bindings.lua。
+# 想让 PRINT 也出拍屏图(可选): 把 bindings-snippet.lua 两行贴进
+# ~/.config/hypr/bindings.lua 再 hyprctl reload。
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -32,16 +33,9 @@ else
   echo "plugin deployed: $PLUGIN_TARGET/"
 fi
 
-# 快捷键接管(幂等:已存在则跳过)
-BINDINGS=~/.config/hypr/bindings.lua
-MARKER="omarchy-phoneshot-screenshot"
-if grep -q "$MARKER" "$BINDINGS"; then
-  echo "bindings.lua already patched, skipped"
-else
-  cp "$BINDINGS" "$BINDINGS.bak.$(date +%s)"
-  cat bindings-snippet.lua >>"$BINDINGS"
-  echo "bindings.lua appended (backup saved)"
-fi
+# PRINT 默认不接管:面板里的 📱 按钮直接触发"选区+做旧",原生 PRINT 不动。
+# 想把 PRINT 也接管成拍屏的,把 bindings-snippet.lua 两行贴进
+# ~/.config/hypr/bindings.lua 再 hyprctl reload 即可(可选)。
 
 # 界面语言:按系统 locale 落一次默认,之后用户改 ~/.config/omarchy/phoneshot-lang
 LANG_FILE=~/.config/omarchy/phoneshot-lang
@@ -50,15 +44,6 @@ if [[ ! -f $LANG_FILE ]]; then
   echo "lang default: $(cat "$LANG_FILE") (edit $LANG_FILE to switch)"
 fi
 
-hyprctl reload
-sleep 0.5
-if hyprctl configerrors 2>&1 | grep -qi "error"; then
-  echo "⚠️ hypr config errors:"; hyprctl configerrors
-else
-  echo "✅ hypr config clean"
-fi
-
-# 模式文件只在缺失时建 off,不覆盖现有开关状态
+# 模式文件只在缺失时建 off(仅当用户自己把 PRINT 绑到 wrapper 时才有意义)
 [[ -f ~/.config/omarchy/phoneshot-mode ]] || echo -n "off" > ~/.config/omarchy/phoneshot-mode
-echo "mode: $(cat ~/.config/omarchy/phoneshot-mode) (off = native screenshots untouched)"
-echo "SUPER+SHIFT+PRINT toggles phoneshot, PRINT screenshots"
+echo "done. 面板 📱 按钮直接拍屏;要接管 PRINT 见 bindings-snippet.lua"

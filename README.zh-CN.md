@@ -6,8 +6,7 @@
 
 ![before / after](docs/demo.jpg)
 
-- 按 `PRINT` 走正常 Omarchy 截图流程（选区 / grim），开关决定是否做旧
-- 默认**关闭**，原生截图不受影响
+- `PRINT` 保持原生不动。做旧是面板里的动作：点栏图标 → 📱 → 选区 → 出图
 - 效果：彩虹摩尔纹（传感器采样模型）+ LCD 亚像素光栅 + 扫描线 + 色散 +
   透视手抖 + 失焦 + 反光/快门横带 + 颗粒 + JPEG 二次压缩
 - 输出 `*-phoneshot.jpg`，原清晰 PNG 也保留；做旧版进剪贴板
@@ -19,37 +18,31 @@
 omarchy plugin add https://github.com/Duro02/omarchy-phoneshot --enable
 ```
 
-装完即用——栏图标、参数面板、预览都直接能用。仓库根就是合法插件
+装完即用，这就是全部安装步骤。仓库根就是合法插件
 （`manifest.json` + `BarWidget.qml`),`plugin add` 会把整仓 clone 到
 `~/.config/omarchy/plugins/duro.phoneshot/`；面板直接调插件目录里的脚本，
-不需要 PATH 配置。
-
-要接管 `PRINT` 的话，往 `~/.config/hypr/bindings.lua` 加两行
-（自己贴，或跑 `~/.config/omarchy/plugins/duro.phoneshot/install.sh`，
-然后 `hyprctl reload`):
-
-```lua
-hl.unbind("PRINT")
-o.bind("PRINT", "Screenshot", "$HOME/.config/omarchy/plugins/duro.phoneshot/bin/omarchy-phoneshot-screenshot")
-o.bind("SUPER + SHIFT + PRINT", "Toggle phoneshot", "$HOME/.config/omarchy/plugins/duro.phoneshot/bin/omarchy-phoneshot-toggle")
-```
+不需要 PATH 配置、不需要改快捷键。
 
 以后更新用 `omarchy plugin update duro.phoneshot`。
 
 ## 用法
 
-| 按键 / 命令 | 动作 |
+| 动作 | 效果 |
 |------|------|
-| `PRINT` | 截图（做旧与否看开关） |
-| `SUPER + SHIFT + PRINT` | 开 / 关拍屏模式（通知提示） |
+| 栏图标 → 「拍屏截图」 | 收起面板 → 选区 → 做旧图落盘 + 进剪贴板 |
+| `PRINT` | 原生 Omarchy 截图，不受影响 |
 | `PHONESHOT_LEVEL=hard omarchy-phoneshot-screenshot` | 单次重度做旧 |
 | `omarchy-phoneshot-apply in.png out.jpg` | 只跑滤镜（脚本在插件目录 `bin/` 里；install.sh 会软链进 `~/.local/bin` 方便命令行调用） |
 
-开关状态存在 `~/.config/omarchy/phoneshot-mode`(`on`/`off`)。
 强度档位 `PHONESHOT_LEVEL`:`mild` / `mid`（默认）/ `hard`。
 
-顶栏相机图标打开参数面板：五个滑杆 + 「随机一组参数」按钮。松手即重渲染
-预览——预览和 PRINT 真实截图同一引擎同一参数。
+面板里五个滑杆 + 「随机一组参数」按钮。松手即重渲染预览——预览和真实
+拍屏同一引擎同一参数。
+
+想让 `PRINT` 也产出拍屏图？可选：把 `bindings-snippet.lua` 两行贴进
+`~/.config/hypr/bindings.lua` 再 `hyprctl reload`。之后
+`~/.config/omarchy/phoneshot-mode` 为 `on` 时做旧（`omarchy-phoneshot-toggle`
+切换），`off` 时透传原生。
 
 | 滑杆 | 范围 | 说明 |
 |------|------|------|
@@ -87,10 +80,11 @@ install.sh 按系统 locale 落一次默认，改完 `omarchy restart shell` 生
 
 ```bash
 omarchy plugin remove duro.phoneshot
-rm ~/.local/bin/omarchy-phoneshot-*
+rm ~/.local/bin/omarchy-phoneshot-*   # 跑过 install.sh 才有
 ```
 
-再从 `~/.config/hypr/bindings.lua` 删掉两行快捷键。原生截图不受影响。
+如果贴过可选的两行绑定，从 `~/.config/hypr/bindings.lua` 删掉即可。
+原生截图不受影响。
 
 ## 开发
 

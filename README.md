@@ -6,8 +6,7 @@ Turn a crisp screenshot into a convincing "phone photographing a screen" image �
 
 ![before / after](docs/demo.jpg)
 
-- `PRINT` keeps the normal Omarchy screenshot flow (region select / grim); a toggle decides whether the result gets styled
-- **Off by default** — native screenshots are untouched
+- `PRINT` stays 100% native — nothing is hijacked. The styled shot is a button in the bar panel: click 📱, the panel closes, you pick a region, done
 - Rainbow moiré from a real sensor-sampling model, LCD subpixel grille, scanlines, chromatic aberration, perspective, defocus, motion blur, glare / rolling-shutter band, grain, JPEG recompression
 - Writes `*-phoneshot.jpg` next to the original PNG; the styled copy goes to the clipboard (as PNG, so Omarchy's clipboard history records it)
 
@@ -17,38 +16,32 @@ Turn a crisp screenshot into a convincing "phone photographing a screen" image �
 omarchy plugin add https://github.com/Duro02/omarchy-phoneshot --enable
 ```
 
-Done — the bar icon, panel, and preview all work right away. The repo root is a
-valid plugin (`manifest.json` + `BarWidget.qml`), so `plugin add` clones the whole
-thing into `~/.config/omarchy/plugins/duro.phoneshot/`; the panel calls the
-renderer scripts inside the plugin dir, no PATH setup needed.
-
-To also take over `PRINT`, add two lines to `~/.config/hypr/bindings.lua`
-(either paste them yourself or run `~/.config/omarchy/plugins/duro.phoneshot/install.sh`,
-then `hyprctl reload`):
-
-```lua
-hl.unbind("PRINT")
-o.bind("PRINT", "Screenshot", "$HOME/.config/omarchy/plugins/duro.phoneshot/bin/omarchy-phoneshot-screenshot")
-o.bind("SUPER + SHIFT + PRINT", "Toggle phoneshot", "$HOME/.config/omarchy/plugins/duro.phoneshot/bin/omarchy-phoneshot-toggle")
-```
+Done — that's the whole install. The repo root is a valid plugin
+(`manifest.json` + `BarWidget.qml`), so `plugin add` clones everything into
+`~/.config/omarchy/plugins/duro.phoneshot/`; the panel calls the renderer
+scripts inside the plugin dir, so no PATH or keybind setup is needed.
 
 Update later with `omarchy plugin update duro.phoneshot`.
 
 ## Usage
 
-| Key / command | Action |
-|---------------|--------|
-| `PRINT` | Screenshot (styled or not, per the toggle) |
-| `SUPER + SHIFT + PRINT` | Toggle phoneshot mode (notification confirms) |
+| Action | What happens |
+|--------|--------------|
+| Bar icon → **Take a phoneshot** | Panel closes, pick a region, styled shot lands on disk + clipboard |
+| `PRINT` | Native Omarchy screenshot, untouched |
 | `PHONESHOT_LEVEL=hard omarchy-phoneshot-screenshot` | One-off heavy styling |
 | `omarchy-phoneshot-apply in.png out.jpg` | Run the filter standalone (scripts live in the plugin dir's `bin/`; install.sh symlinks them into `~/.local/bin` for PATH use) |
 
-Toggle state lives in `~/.config/omarchy/phoneshot-mode` (`on`/`off`).
 Intensity preset: `PHONESHOT_LEVEL` = `mild` / `mid` (default) / `hard`.
 
-A bar icon opens the parameter panel: five sliders plus a "Randomize parameters"
-button. Releasing a slider re-renders the preview — the preview uses the same
-engine and the same parameters as a real PRINT shot.
+The panel has five sliders plus a "Randomize parameters" button. Releasing a
+slider re-renders the preview — the preview uses the same engine and the same
+parameters as a real shot.
+
+Want `PRINT` itself to produce phoneshots? Optional: paste
+`bindings-snippet.lua` into `~/.config/hypr/bindings.lua` and `hyprctl reload`.
+The wrapper then styles when `~/.config/omarchy/phoneshot-mode` says `on`
+(`omarchy-phoneshot-toggle` flips it), and passes through to native when `off`.
 
 | Slider | Range | Notes |
 |--------|-------|-------|
@@ -88,11 +81,11 @@ run `omarchy restart shell` to apply.
 
 ```bash
 omarchy plugin remove duro.phoneshot
-rm ~/.local/bin/omarchy-phoneshot-*
+rm ~/.local/bin/omarchy-phoneshot-*   # if you ran install.sh
 ```
 
-Then delete the two keybind lines from `~/.config/hypr/bindings.lua`.
-Native screenshots are unaffected.
+If you added the optional keybind lines, delete them from
+`~/.config/hypr/bindings.lua`. Native screenshots are unaffected.
 
 ## Development
 
