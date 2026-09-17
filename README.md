@@ -10,6 +10,13 @@ Turn a crisp screenshot into a convincing "phone photographing a screen" image �
 - Rainbow moiré from a real sensor-sampling model, LCD subpixel grille, scanlines, chromatic aberration, perspective, defocus, motion blur, glare / rolling-shutter band, grain, JPEG recompression
 - Writes `*-phoneshot.jpg` next to the original PNG; the styled copy goes to the clipboard (as PNG, so Omarchy's clipboard history records it)
 
+## Requirements
+
+Omarchy already ships everything the plugin shells out to: `grim`, `slurp`,
+`wl-copy`, `notify-send`, and ImageMagick (`magick`). No extra packages, no
+services, no daemons — the widget only runs scripts on demand, all inside the
+plugin's own `bin/` directory.
+
 ## Install
 
 ```bash

@@ -12,6 +12,12 @@
 - 输出 `*-phoneshot.jpg`，原清晰 PNG 也保留；做旧版进剪贴板
   （转投 PNG,Omarchy 剪贴板历史能记录）
 
+## 依赖
+
+插件调用的命令 Omarchy 全都自带：`grim`、`slurp`、`wl-copy`、
+`notify-send`、ImageMagick(`magick`)。不装额外包、不跑后台服务——
+所有脚本都在插件目录 `bin/` 里，按需执行。
+
 ## 安装
 
 ```bash

@@ -4,6 +4,7 @@
   "name": "Phoneshot",
   "version": "0.2.0",
   "author": "duro",
+  "license": "MIT",
   "description": "Turn screenshots into phone-photo-of-screen images, with a live-preview parameter panel",
   "kinds": [
     "bar-widget"
