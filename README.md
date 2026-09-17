@@ -1,101 +1,132 @@
-# Phoneshot 📸
+# Phoneshot
 
-**中文**: [README.zh-CN.md](README.zh-CN.md)
+[简体中文](README.zh-CN.md) | **English**
 
-Turn a crisp screenshot into a convincing "phone photographing a screen" image — an Omarchy plugin.
+An Omarchy plugin that turns crisp screenshots into convincing "phone photographing a screen" images.
 
 ![before / after](docs/demo.jpg)
 
-- `PRINT` stays 100% native — nothing is hijacked. The styled shot is a button in the bar panel: click 📱, the panel closes, you pick a region, done
-- Rainbow moiré from a real sensor-sampling model, LCD subpixel grille, scanlines, chromatic aberration, perspective, defocus, motion blur, glare / rolling-shutter band, grain, JPEG recompression
-- Writes `*-phoneshot.jpg` next to the original PNG; the styled copy goes to the clipboard (as PNG, so Omarchy's clipboard history records it)
+### Features
+
+- **Realistic Optical Artifacts**: Rainbow moiré patterns (sensor sampling model), LCD subpixel grille, scanlines, and chromatic aberration.
+- **Physical Camera Effects**: Keystone perspective tilt, roll rotation, lens defocus blur, camera shake motion blur, and glare / rolling shutter bands.
+- **Analog Texture**: Sensor noise grain and realistic JPEG recompression.
+- **Seamless Output**: Saves the styled shot (`*-phoneshot.jpg`) alongside the original PNG, and copies the styled image to the clipboard as PNG.
 
 ## Requirements
 
-Omarchy already ships everything the plugin shells out to: `grim`, `slurp`,
-`wl-copy`, `notify-send`, and ImageMagick (`magick`). No extra packages, no
-services, no daemons — the widget only runs scripts on demand, all inside the
-plugin's own `bin/` directory.
+All required dependencies (`grim`, `slurp`, `magick`, `wl-copy`) ship pre-installed with Omarchy.
 
-## Install
+## Installation
 
 ```bash
 omarchy plugin add https://github.com/Duro02/omarchy-phoneshot --enable
 ```
 
-Done — that's the whole install. The repo root is a valid plugin
-(`manifest.json` + `BarWidget.qml`), so `plugin add` clones everything into
-`~/.config/omarchy/plugins/duro.phoneshot/`; the panel calls the renderer
-scripts inside the plugin dir, so no PATH or keybind setup is needed.
+To update to the latest version:
 
-Update later with `omarchy plugin update duro.phoneshot`.
+```bash
+omarchy plugin update duro.phoneshot
+```
 
 ## Usage
 
-| Action | What happens |
-|--------|--------------|
-| Bar icon → **Take a phoneshot** | Panel closes, pick a region, styled shot lands on disk + clipboard |
-| `PRINT` | Native Omarchy screenshot, untouched |
-| `PHONESHOT_LEVEL=hard omarchy-phoneshot-screenshot` | One-off heavy styling |
-| `omarchy-phoneshot-apply in.png out.jpg` | Run the filter standalone (scripts live in the plugin dir's `bin/`; install.sh symlinks them into `~/.local/bin` for PATH use) |
+| Action / Command | Description |
+|------------------|-------------|
+| Bar icon → **Take a phoneshot** | Closes the panel, prompts for a screen region, and outputs the styled shot to disk and clipboard |
+| `omarchy-phoneshot-screenshot` | Captures a phoneshot directly via CLI |
+| `PHONESHOT_LEVEL=hard omarchy-phoneshot-screenshot` | Captures a phoneshot with a specific intensity level |
+| `omarchy-phoneshot-apply in.png out.jpg [level]` | Standalone filter tool: applies the phoneshot styling to an existing image |
 
-Intensity preset: `PHONESHOT_LEVEL` = `mild` / `mid` (default) / `hard`.
+CLI scripts live in the plugin's `bin/` directory (`~/.config/omarchy/plugins/duro.phoneshot/bin/`). Run `install.sh` once from that directory to symlink them into `~/.local/bin` so they work as bare commands.
 
-The panel has five sliders plus a "Randomize parameters" button. Releasing a
-slider re-renders the preview — the preview uses the same engine and the same
-parameters as a real shot.
+### Intensity Presets
 
-Want `PRINT` itself to produce phoneshots? Optional: paste
-`bindings-snippet.lua` into `~/.config/hypr/bindings.lua` and `hyprctl reload`.
-The wrapper then styles when `~/.config/omarchy/phoneshot-mode` says `on`
-(`omarchy-phoneshot-toggle` flips it), and passes through to native when `off`.
+Set the `PHONESHOT_LEVEL` environment variable (or configure `level` in the output config) to one of:
+- `mild`: Subtle moiré and grain, minimal blur.
+- `mid`: Balanced everyday screen photo look (default).
+- `hard`: Heavy moiré, strong glare, higher blur and compression.
 
-| Slider | Range | Notes |
-|--------|-------|-------|
-| Roll | −5–+5° | In-plane rotation, −=cw/+=ccw |
-| Side view | −12–+12° | Keystone perspective, + = shot from the right |
-| Defocus | 0–2.0 | Out-of-focus blur (also suppresses moiré) |
-| Motion blur | 0–8px | Directional handshake ghosting |
-| Blur angle | 0–180° | Streak direction |
+### Interactive Panel & Preview
 
-Perspective/rotation never fabricate pixels outside the source: the result is
-cropped to the largest inscribed rectangle of real content, so the output is
-slightly smaller than the input and varies with the parameters.
+Clicking the bar icon opens an adjustment panel with five sliders and a **Randomize parameters** button. Releasing any slider automatically updates the live preview (cached at `~/.cache/phoneshot/preview.jpg`), which uses the exact same rendering engine and parameters as real captures.
 
-## Output config
+## Parameters
 
-`~/.config/omarchy/phoneshot-output` (all fields optional):
+| Parameter | Key | Range | Description |
+|-----------|-----|-------|-------------|
+| Roll | `ROTATE` | −5° to +5° | In-plane rotation (− = clockwise, + = counter-clockwise) |
+| Side view | `KEYSTONE` | −12° to +12° | Keystone perspective (+ = right side, − = left side) |
+| Defocus | `DEFOCUS` | 0 to 2.0 | Lens out-of-focus blur (also softens moiré) |
+| Motion blur | `MOTION` | 0 to 8 px | Camera shake blur distance |
+| Blur angle | `MOTION_ANGLE` | 0° to 180° | Motion blur streak angle |
 
-```
-clipboard=phoneshot      # original | phoneshot | none
-save_original=true
-save_phoneshot=true
-output_dir=              # empty = the native screenshot dir
-level=mid                # mild | mid | hard
-notify=true
+> **Note**: Perspective and rotation automatically crop to the largest inscribed rectangle of real pixels, ensuring clean edges without padding.
+
+Parameters can also be set via the CLI:
+```bash
+omarchy-phoneshot-set <KEY> <VAL>
+# Example:
+omarchy-phoneshot-set ROTATE 2.5
 ```
 
-`PRINT … copy` forces no disk write; `PRINT … save` forces no clipboard.
-If the styled image is neither saved nor copied, rendering is skipped entirely.
+## Configuration
 
-## UI language
+Configuration files are located in `~/.config/omarchy/`:
 
-`~/.config/omarchy/phoneshot-lang` = `zh` or `en` — controls the panel and
-notification text. install.sh seeds it once from the system locale; edit it and
-run `omarchy restart shell` to apply.
+- **`phoneshot-params`**: Holds the current values of the five parameters (`ROTATE`, `KEYSTONE`, `DEFOCUS`, `MOTION`, `MOTION_ANGLE`).
+- **`phoneshot-output`**: Controls capture output and clipboard destinations (all fields optional):
+  ```ini
+  clipboard=phoneshot      # original | phoneshot | none
+  save_original=true
+  save_phoneshot=true
+  output_dir=              # empty = default Omarchy screenshot directory
+  level=mid                # mild | mid | hard
+  notify=true
+  ```
+  *(Calling screenshots with `copy` skips disk writes; calling with `save` skips clipboard copying. If a styled image is neither saved nor copied, rendering is skipped.)*
+- **`phoneshot-mode`**: Stores the current toggle mode (`on` or `off`).
+- **`phoneshot-lang`**: Controls UI and notification language (`en` or `zh`).
+
+## UI Language
+
+The panel and notification language is controlled by `~/.config/omarchy/phoneshot-lang` (`zh` or `en`).
+
+To switch languages:
+```bash
+echo "zh" > ~/.config/omarchy/phoneshot-lang
+omarchy restart shell
+```
+
+## Optional: Keybinding Integration
+
+You can integrate Phoneshot directly with your keyboard shortcuts to capture styled screenshots or toggle modes on the fly.
+
+Append the snippet from `bindings-snippet.lua` to `~/.config/hypr/bindings.lua`:
+
+```lua
+hl.unbind("PRINT")
+o.bind("PRINT", "Screenshot", "$HOME/.config/omarchy/plugins/duro.phoneshot/bin/omarchy-phoneshot-screenshot")
+o.bind("SUPER + SHIFT + PRINT", "Toggle phoneshot", "$HOME/.config/omarchy/plugins/duro.phoneshot/bin/omarchy-phoneshot-toggle")
+```
+
+Then reload keybindings:
+```bash
+hyprctl reload
+```
+
+- **`PRINT`**: Captures a screenshot. When phoneshot mode is `on`, it produces a styled shot; when `off`, it takes a standard screenshot.
+- **`SUPER + SHIFT + PRINT`**: Toggles phoneshot mode between `on` and `off` using `omarchy-phoneshot-toggle`.
+- **`PHONESHOT_FORCE=1`**: Prefixing `omarchy-phoneshot-screenshot` with this environment variable captures a styled phoneshot regardless of the current toggle state.
 
 ## Uninstall
 
 ```bash
 omarchy plugin remove duro.phoneshot
-rm ~/.local/bin/omarchy-phoneshot-*   # if you ran install.sh
 ```
 
-If you added the optional keybind lines, delete them from
-`~/.config/hypr/bindings.lua`. Native screenshots are unaffected.
+If you configured the optional keybindings, remove the added lines from `~/.config/hypr/bindings.lua`.
 
-## Development
+## License
 
-This repo is the source of truth. Edit here, run `./install.sh`, then
-`omarchy restart shell`. Design decisions and bug history live in
-[DEVLOG.md](DEVLOG.md).
+[MIT](LICENSE) © [Duro02](https://github.com/Duro02/omarchy-phoneshot)
